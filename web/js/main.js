@@ -4,7 +4,7 @@ import { Camera } from './camera.js?v=20261127-5';
 import { prepareWorld } from './world.js?v=20261127-5';
 import { createMapRenderer } from './render/map.js?v=20261127-5';
 import { isElevation25D, pickCell25D } from './render/art/elevation25d.js?v=20261127-5';
-import { createApp } from './app/api.js?v=20261127-5';
+import { createApp } from './app/api.js?v=20261127-6';
 import { initTopbar } from './ui/topbar.js?v=20261127-4';
 import { initSearch } from './ui/search.js';
 import { initLenses } from './ui/lenses.js?v=20261127-5';
@@ -15,7 +15,7 @@ import { initHelp } from './ui/help.js';
 import { initMinimap } from './ui/minimap.js';
 import { renderQuickStatePanel } from './ui/statePanel.js';
 import { renderQuickCityPanel } from './ui/cityPanel.js';
-import { loadExtensions } from './ext/index.js?v=20261127-4';
+import { loadExtensions } from './ext/index.js?v=20261127-6';
 
 async function boot() {
   const canvas = document.getElementById('map-canvas');

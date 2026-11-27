@@ -47,8 +47,6 @@ export async function mount(ctx) {
   const insts = mil.installations || [];
   const ranges = mil.ranges || [];
 
-  ctx.setLayer("military", true);
-
   tiles(el, [
     { label: "解放军战区格局", value: `${theaters.length || 5} 大战区`, sub: "联合作战指挥体制" },
     { label: "公开记录基地/港口/发射场", value: `${insts.length} 处`, sub: "军港、空军基地、航天中心等" },

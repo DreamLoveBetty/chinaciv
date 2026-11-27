@@ -1,9 +1,8 @@
-// Registers all 6 static map art layers and binds them to the Topbar "图层" menu
+// Registers all 5 static map art layers and binds them to the Topbar "图层" menu
 
 import { createRoadsLayer } from './roads.js';
 import { createRailLayer } from './rail.js';
 import { createHubsLayer } from './hubs.js';
-import { createMilitaryLayer } from './military.js';
 import { createWondersLayer } from './wonders.js';
 import { createTradeLayer } from './trade.js';
 
@@ -66,15 +65,6 @@ export function install(app) {
       default: true,
       dataName: 'wonders',
       factory: createWondersLayer,
-    },
-    {
-      id: 'military',
-      label: '五大战区防务',
-      icon: 'military',
-      title: '五大战区基地、航天发射场与演训区',
-      default: false,
-      dataName: 'military',
-      factory: createMilitaryLayer,
     },
     {
       id: 'trade',

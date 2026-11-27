@@ -15,7 +15,7 @@ export const ADVISORS = [
   { id: "prosperity", name: "民生典客", role: "安居厚生", color: "#3f9c82", dark: "#082a22", blurb: "人均可支配收入、房价收入比、自有房与低收入关注。", load: () => import("./views/prosperity.js") },
   { id: "knowledge", name: "国子监祭酒", role: "格致兴学", color: "#4a86d6", dark: "#0a1c3a", blurb: "高校学历、宽带、STEM人才（深圳1/5 vs 全国1/14）及顶尖科研大学。", load: () => import("./views/knowledge.js?v=20261127-5") },
   { id: "land", name: "舆地测绘官", role: "山川土宜", color: "#6e9a3c", dark: "#18280a", blurb: "全国及34省森林、耕地、草原、荒漠、高寒、湿地与城镇占比。", load: () => import("./views/land.js") },
-  { id: "military", name: "大将军", role: "五大战区", color: "#8796ab", dark: "#141b26", blurb: "五大解放军战区、海陆空天火箭军基地与靶场分布。", load: () => import("./views/military.js?v=20261127-5") },
+  { id: "military", name: "大将军", role: "五大战区", color: "#8796ab", dark: "#141b26", blurb: "五大解放军战区、海陆空天火箭军基地与靶场分布。", load: () => import("./views/military.js?v=20261127-6") },
   { id: "commerce", name: "市舶提举", role: "通商转运", color: "#2fa4b8", dark: "#062630", blurb: "40条省际货运干线、沿海内河大港与繁忙空港枢纽。", load: () => import("./views/commerce.js?v=20261127-5") },
   { id: "culture", name: "太常礼官", role: "礼乐灾异", color: "#c25b9a", dark: "#2e0c22", blurb: "公开规则奇观榜、文化传统、健康福祉与地震灾害记录。", load: () => import("./views/culture.js?v=20261127-5") },
   { id: "explorer", name: "探索者 · 1,302县", role: "舆图格物", color: "#9a7bc9", dark: "#1e1236", blurb: "自由切片34省/城市/1,302县全指标：散点相关性、框选地图联动与CSV导出。", load: () => import("./views/explorer.js?v=20261127-5") },
