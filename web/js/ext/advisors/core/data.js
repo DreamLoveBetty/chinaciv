@@ -1,7 +1,7 @@
 // Unified data adapter exposing 3 geographical levels (34 Provinces, ~90 Cities, 1,302 Counties)
 // plus lazy loading for energy, infrastructure, military, wonders, trade, districts, and sources.
 import { fin, sum } from "./util.js";
-import { frameBox } from "./frame.js";
+import { frameBox } from "./frame.js?v=20261127-5";
 
 const PROVINCE_FIELDS = [
   { key: "population", label: "总人口", short: "人口", format: "pop", unit: "人", group: "people", lens: "density" },

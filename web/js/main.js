@@ -1,12 +1,13 @@
 // Application entry point: boots world, renderer, camera, UI panels, extensions & URL hash sync
 
-import { Camera } from './camera.js';
-import { prepareWorld } from './world.js?v=20261127-4';
-import { createMapRenderer } from './render/map.js?v=20261127-4';
-import { createApp } from './app/api.js?v=20261127-4';
+import { Camera } from './camera.js?v=20261127-5';
+import { prepareWorld } from './world.js?v=20261127-5';
+import { createMapRenderer } from './render/map.js?v=20261127-5';
+import { isElevation25D, pickCell25D } from './render/art/elevation25d.js?v=20261127-5';
+import { createApp } from './app/api.js?v=20261127-5';
 import { initTopbar } from './ui/topbar.js?v=20261127-4';
 import { initSearch } from './ui/search.js';
-import { initLenses } from './ui/lenses.js?v=20261127-4';
+import { initLenses } from './ui/lenses.js?v=20261127-5';
 import { initTooltip, buildCellTooltipHtml } from './ui/tooltip.js?v=20261127-4';
 import { initYieldReport } from './ui/yieldReport.js';
 import { initPedia } from './ui/pedia.js?v=20261127-4';
@@ -224,6 +225,9 @@ async function boot() {
     if (h.lens) {
       await app.loadData('counties').catch(() => {});
       app.setLens(h.lens, { silentHash: true });
+      if (h.lens === 'elevation' && !h.city && !h.province) {
+        app.fitChina({ instant: true });
+      }
     }
 
     setProgress(100, '载入完成');
@@ -314,7 +318,9 @@ async function boot() {
     }
 
     const worldPt = cam.screenToWorld(sx, sy);
-    const cell = app.w.cellAt(worldPt.x, worldPt.y);
+    const cell = isElevation25D(app.state)
+      ? pickCell25D(app.w, worldPt.x, worldPt.y)
+      : app.w.cellAt(worldPt.x, worldPt.y);
     const prevCell = app.state.hoverCell;
     const cellChanged = cell !== prevCell;
 
@@ -323,7 +329,7 @@ async function boot() {
       renderer.requestDraw();
     }
 
-    const tipKey = `${cell}:${app.state.lens?.id || ''}:${app.state.layers.wonders ? 1 : 0}:${app.state.showResources ? 1 : 0}`;
+    const tipKey = `${cell}:${app.state.lens?.id || ''}:${app.state.elevation25D ? 1 : 0}:${app.state.layers.wonders ? 1 : 0}:${app.state.showResources ? 1 : 0}`;
     if (tipKey !== lastTipKey) {
       lastTipKey = tipKey;
       const html = buildCellTooltipHtml(app, cell);
@@ -375,7 +381,9 @@ async function boot() {
       }
 
       const worldPt = cam.screenToWorld(sx, sy);
-      const cell = app.w.cellAt(worldPt.x, worldPt.y);
+      const cell = isElevation25D(app.state)
+        ? pickCell25D(app.w, worldPt.x, worldPt.y)
+        : app.w.cellAt(worldPt.x, worldPt.y);
       const ow = cell >= 0 ? app.w.owner[cell] : -1;
       const ctIdx = cell >= 0 ? app.w.county?.[cell] ?? -1 : -1;
       const cityAtCell = cell >= 0 ? app.state.cities.find((c) => c.cell === cell) || null : null;

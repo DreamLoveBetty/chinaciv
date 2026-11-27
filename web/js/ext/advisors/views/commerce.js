@@ -1,7 +1,7 @@
 // Advisor 8: 市舶提举 (Commerce & Trade — 40 Freight Corridors + Toggle Trade Map Layer + Ports & Airports)
 import { esc, fin, sum } from "../core/util.js";
 import { fmtGdpYi, dec, int } from "../core/fmt.js";
-import { ensureDatasets } from "../core/data.js";
+import { ensureDatasets } from "../core/data.js?v=20261127-5";
 import { barList } from "../core/charts.js";
 import { section, tiles, segmented, sourcesHtml, frameBtn } from "../core/view.js";
 

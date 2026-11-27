@@ -214,6 +214,7 @@ export function prepareWorld(raw, geoLookup = null) {
       }
       sb.labelX = cxArr[best];
       sb.labelY = cyArr[best];
+      sb.labelCell = best;
     } else {
       sb.x0 = 0;
       sb.y0 = 0;

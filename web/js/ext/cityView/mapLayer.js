@@ -8,6 +8,22 @@ import {
   hexCornerPoints,
   inspectHexCell,
 } from "./data.js";
+import { isElevation25D, elevLiftKm } from "../../render/art/elevation25d.js?v=20261127-5";
+
+function getLiftKm(w, cellIdx, is25D) {
+  if (!is25D || !w?.elev || cellIdx == null || cellIdx < 0 || cellIdx >= w.elev.length) return 0;
+  return elevLiftKm(w.elev[cellIdx]);
+}
+
+function liftAtXY(w, x, y, cellHint, is25D) {
+  if (!is25D || !w) return 0;
+  const cell = cellHint != null && cellHint >= 0
+    ? cellHint
+    : typeof w.cellAt === "function"
+      ? w.cellAt(x, y)
+      : -1;
+  return getLiftKm(w, cell, is25D);
+}
 
 /**
  * Map overlay for Civilization-style City & Province View:
@@ -46,7 +62,7 @@ export function createCityViewMapLayer(app) {
         if (nb < 0 || !cellSet.has(nb)) {
           const a = corners[k];
           const b = corners[(k + 1) % 6];
-          segments.push(a[0], a[1], b[0], b[1]);
+          segments.push(a[0], a[1], b[0], b[1], cell);
         }
       }
     }
@@ -161,6 +177,8 @@ export function createCityViewMapLayer(app) {
     const dpr = Number(cam.dpr || (typeof window !== "undefined" ? window.devicePixelRatio : 1) || 1);
     const cssW = Number(cam.width || (canvas ? canvas.width / dpr : 1440));
     const cssH = Number(cam.height || (canvas ? canvas.height / dpr : 900));
+    const is25D = isElevation25D(app?.state);
+    const yScale = Number.isFinite(cam.yScale) ? cam.yScale : 1;
 
     if (typeof cam.worldToScreen === "function") {
       const c = typeof cam.viewportCenterScreen === "function"
@@ -171,11 +189,13 @@ export function createCityViewMapLayer(app) {
       const cy = Number(cam.y || 0);
       return {
         scale: k,
+        yScale,
+        is25D,
         cssW,
         cssH,
-        toScreen: (wx, wy) => ({
+        toScreen: (wx, wy, liftKm = 0) => ({
           x: c.sx + (wx - cx) * k,
-          y: c.sy + (wy - cy) * k,
+          y: c.sy + (wy - liftKm - cy) * k * yScale,
         }),
       };
     }
@@ -183,11 +203,13 @@ export function createCityViewMapLayer(app) {
     const { k, cx, cy } = getCameraScale(cam, cssW, cssH);
     return {
       scale: k,
+      yScale,
+      is25D,
       cssW,
       cssH,
-      toScreen: (wx, wy) => ({
+      toScreen: (wx, wy, liftKm = 0) => ({
         x: (wx - cx) * k + cssW / 2,
-        y: (wy - cy) * k + cssH / 2,
+        y: (wy - liftKm - cy) * k * yScale + cssH / 2,
       }),
     };
   }
@@ -218,7 +240,7 @@ export function createCityViewMapLayer(app) {
     const visible = [];
     for (let i = 0; i < state.cellCoords.length; i++) {
       const item = state.cellCoords[i];
-      const sc = proj.toScreen(item.x, item.y);
+      const sc = proj.toScreen(item.x, item.y, liftAtXY(w, item.x, item.y, item.cell, proj.is25D));
       if (sc.x < -padPx || sc.x > proj.cssW + padPx || sc.y < -padPx || sc.y > proj.cssH + padPx) {
         continue;
       }
@@ -231,9 +253,9 @@ export function createCityViewMapLayer(app) {
     ctx.rect(-20, -20, proj.cssW + 40, proj.cssH + 40);
     for (let i = 0; i < visible.length; i++) {
       const { sx, sy } = visible[i];
-      ctx.moveTo(sx + corners[0][0] * proj.scale, sy + corners[0][1] * proj.scale);
+      ctx.moveTo(sx + corners[0][0] * proj.scale, sy + corners[0][1] * proj.scale * proj.yScale);
       for (let k = 1; k < 6; k++) {
-        ctx.lineTo(sx + corners[k][0] * proj.scale, sy + corners[k][1] * proj.scale);
+        ctx.lineTo(sx + corners[k][0] * proj.scale, sy + corners[k][1] * proj.scale * proj.yScale);
       }
       ctx.closePath();
     }
@@ -249,9 +271,9 @@ export function createCityViewMapLayer(app) {
       ctx.beginPath();
       for (let i = 0; i < visible.length; i++) {
         const { sx, sy } = visible[i];
-        ctx.moveTo(sx + corners[0][0] * proj.scale, sy + corners[0][1] * proj.scale);
+        ctx.moveTo(sx + corners[0][0] * proj.scale, sy + corners[0][1] * proj.scale * proj.yScale);
         for (let k = 1; k < 6; k++) {
-          ctx.lineTo(sx + corners[k][0] * proj.scale, sy + corners[k][1] * proj.scale);
+          ctx.lineTo(sx + corners[k][0] * proj.scale, sy + corners[k][1] * proj.scale * proj.yScale);
         }
         ctx.closePath();
       }
@@ -285,9 +307,10 @@ export function createCityViewMapLayer(app) {
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.beginPath();
-      for (let k = 0; k < segs.length; k += 4) {
-        const a = proj.toScreen(segs[k], segs[k + 1]);
-        const b = proj.toScreen(segs[k + 2], segs[k + 3]);
+      for (let k = 0; k < segs.length; k += 5) {
+        const lift = getLiftKm(w, segs[k + 4], proj.is25D);
+        const a = proj.toScreen(segs[k], segs[k + 1], lift);
+        const b = proj.toScreen(segs[k + 2], segs[k + 3], lift);
         if (
           (a.x < -30 && b.x < -30) ||
           (a.x > proj.cssW + 30 && b.x > proj.cssW + 30) ||
@@ -333,7 +356,7 @@ export function createCityViewMapLayer(app) {
     const assetMarkers = [];
     for (const a of state.assets) {
       if (!Number.isFinite(a.x) || !Number.isFinite(a.y)) continue;
-      const sp = proj.toScreen(a.x, a.y);
+      const sp = proj.toScreen(a.x, a.y, liftAtXY(app?.w, a.x, a.y, a.cell, proj.is25D));
       if (sp.x < -30 || sp.x > proj.cssW + 30 || sp.y < -30 || sp.y > proj.cssH + 30) continue;
       const isHovered = state.hoveredAssetUid === a.uid;
       assetMarkers.push({ a, sp, isHovered });
@@ -378,11 +401,12 @@ export function createCityViewMapLayer(app) {
     }
 
     // 5. Civ District Hex Plaques around city center
-    const centerSc = proj.toScreen(fp.cx, fp.cy);
+    const centerSc = proj.toScreen(fp.cx, fp.cy, liftAtXY(app?.w, fp.cx, fp.cy, fp.centerCell, proj.is25D));
     const labelBoxes = [];
 
     for (const p of state.plaques) {
-      const sp = proj.toScreen(p.x, p.y);
+      const pLift = liftAtXY(app?.w, p.x, p.y, p.cell, proj.is25D);
+      const sp = proj.toScreen(p.x, p.y, pLift);
       const isHovered = state.hoveredDistrictIdx === p.index;
       const dMeta = p.meta || DISTRICT_META.campus;
       const corners = hexCornerPoints(p.x, p.y, grid.R * 0.92);
@@ -402,7 +426,7 @@ export function createCityViewMapLayer(app) {
       ctx.save();
       ctx.beginPath();
       for (let k = 0; k < 6; k++) {
-        const cp = proj.toScreen(corners[k][0], corners[k][1]);
+        const cp = proj.toScreen(corners[k][0], corners[k][1], pLift);
         if (k === 0) ctx.moveTo(cp.x, cp.y);
         else ctx.lineTo(cp.x, cp.y);
       }
@@ -477,7 +501,11 @@ export function createCityViewMapLayer(app) {
     if (state.ping) {
       const elapsed = performance.now() - state.ping.startMs;
       const t = (elapsed % 900) / 900;
-      const sp = proj.toScreen(state.ping.x, state.ping.y);
+      const sp = proj.toScreen(
+        state.ping.x,
+        state.ping.y,
+        liftAtXY(app?.w, state.ping.x, state.ping.y, state.ping.cell, proj.is25D),
+      );
       const radius = 10 + t * 34;
       const alpha = Math.max(0, 1 - t);
       ctx.save();
@@ -541,14 +569,16 @@ export function createCityViewMapLayer(app) {
 
   function hitTestMapClick(wx, wy, cellIdx) {
     if (!state.active) return null;
+    const w = app?.w;
+    const is25D = isElevation25D(app?.state);
     const plaque = state.plaqueCells.get(cellIdx) ||
-      state.plaques.find((p) => Number.isFinite(wx) && Math.hypot(p.x - wx, p.y - wy) < 15);
+      state.plaques.find((p) => Number.isFinite(wx) && Math.hypot(p.x - wx, p.y - liftAtXY(w, p.x, p.y, p.cell, is25D) - wy) < 15);
     if (plaque) {
       pingAt(plaque.x, plaque.y, plaque.meta?.color || "#ecd08e", plaque.district?.name);
       return { kind: "district", index: plaque.index, plaque };
     }
     const asset = state.assetCells.get(cellIdx) ||
-      state.assets.find((a) => Number.isFinite(wx) && Number.isFinite(a.x) && Math.hypot(a.x - wx, a.y - wy) < 12);
+      state.assets.find((a) => Number.isFinite(wx) && Number.isFinite(a.x) && Math.hypot(a.x - wx, a.y - liftAtXY(w, a.x, a.y, a.cell, is25D) - wy) < 12);
     if (asset) {
       pingAt(asset.x, asset.y, "#ecd08e", asset.name);
       return { kind: "asset", uid: asset.uid, asset };

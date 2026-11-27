@@ -1,7 +1,7 @@
 // Advisor 3: 户籍大司徒 (People — Hu Huanyong Line East vs West, Density, Migration, Age)
 import { esc, fin, sum } from "../core/util.js";
 import { fmtPop, dec, pct, signedPct, int } from "../core/fmt.js";
-import { ensureDatasets } from "../core/data.js";
+import { ensureDatasets } from "../core/data.js?v=20261127-5";
 import { shareBar, barList, histogram } from "../core/charts.js";
 import { section, tiles, callout, segmented, mapColorPicker, sourcesHtml } from "../core/view.js";
 

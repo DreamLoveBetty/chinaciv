@@ -1,6 +1,6 @@
 import { buildCityBadgeMap, ensureCityViewData, escHtml } from "./data.js";
-import { createCityViewMapLayer } from "./mapLayer.js";
-import { createCityViewScreen } from "./screen.js";
+import { createCityViewMapLayer } from "./mapLayer.js?v=20261127-5";
+import { createCityViewScreen } from "./screen.js?v=20261127-5";
 
 /**
  * ChinaCiv City & Province View Extension

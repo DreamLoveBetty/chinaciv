@@ -30,6 +30,7 @@ export function createInitialState() {
     cities: [],
     states: [],
     lens: null,          // null = 地形地貌 (Civ terrain), or lens object from lenses.json
+    elevation25D: true,  // auto-enable 2.5D extruded prism view under elevation lens
     band: null,          // active legend band filter
     hoverCell: -1,
     selectedCity: null,

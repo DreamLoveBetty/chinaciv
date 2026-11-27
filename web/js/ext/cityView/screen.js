@@ -1,3 +1,4 @@
+import { isElevation25D, elevLiftKm } from "../../render/art/elevation25d.js?v=20261127-5";
 import {
   DISTRICT_META,
   REGION_ORDER,
@@ -547,7 +548,12 @@ export function createCityViewScreen(app, mapLayer, callbacks) {
     dockEl.querySelector('[data-cv-action="recenter"]')?.addEventListener("click", () => {
       if (currentFootprint?.bounds) {
         const b = currentFootprint.bounds;
-        app.fitBounds?.(b.x0, b.y0, b.x1, b.y1, { padding: 48 });
+        let lift = 0;
+        if (isElevation25D(app?.state) && app?.w?.elev) {
+          const c = typeof app.w.cellAt === "function" ? app.w.cellAt(currentFootprint.cx, currentFootprint.cy) : -1;
+          if (c >= 0) lift = elevLiftKm(app.w.elev[c]);
+        }
+        app.fitBounds?.(b.x0, b.y0 - lift, b.x1, b.y1 - lift, { padding: 48 });
       }
     });
 
@@ -581,7 +587,12 @@ export function createCityViewScreen(app, mapLayer, callbacks) {
       card.addEventListener("click", () => {
         if (plaque) {
           mapLayer.pingAt(plaque.x, plaque.y, plaque.meta.color, plaque.district.name);
-          app.fitBounds?.(plaque.x - 55, plaque.y - 55, plaque.x + 55, plaque.y + 55, { padding: 44 });
+          let lift = 0;
+          if (isElevation25D(app?.state) && app?.w?.elev) {
+            const c = plaque.cell >= 0 ? plaque.cell : (typeof app.w.cellAt === "function" ? app.w.cellAt(plaque.x, plaque.y) : -1);
+            if (c >= 0) lift = elevLiftKm(app.w.elev[c]);
+          }
+          app.fitBounds?.(plaque.x - 55, plaque.y - lift - 55, plaque.x + 55, plaque.y - lift + 55, { padding: 44 });
         }
       });
     });
@@ -607,7 +618,12 @@ export function createCityViewScreen(app, mapLayer, callbacks) {
         mapLayer.setHoveredAsset(a.uid);
         mapLayer.pingAt(a.x, a.y, "#ecd08e", a.name);
         if (Number.isFinite(a.x) && Number.isFinite(a.y)) {
-          app.fitBounds?.(a.x - 75, a.y - 75, a.x + 75, a.y + 75, { padding: 48 });
+          let lift = 0;
+          if (isElevation25D(app?.state) && app?.w?.elev) {
+            const c = a.cell >= 0 ? a.cell : (typeof app.w.cellAt === "function" ? app.w.cellAt(a.x, a.y) : -1);
+            if (c >= 0) lift = elevLiftKm(app.w.elev[c]);
+          }
+          app.fitBounds?.(a.x - 75, a.y - lift - 75, a.x + 75, a.y - lift + 75, { padding: 48 });
         }
       });
     });
@@ -667,7 +683,12 @@ export function createCityViewScreen(app, mapLayer, callbacks) {
     // Fit map bounds around footprint
     if (opts.fit !== false && currentFootprint?.bounds) {
       const b = currentFootprint.bounds;
-      app.fitBounds?.(b.x0, b.y0, b.x1, b.y1, { padding: entity.kind === "city" ? 60 : 44 });
+      let lift = 0;
+      if (isElevation25D(app?.state) && app?.w?.elev) {
+        const c = typeof app.w.cellAt === "function" ? app.w.cellAt(currentFootprint.cx, currentFootprint.cy) : -1;
+        if (c >= 0) lift = elevLiftKm(app.w.elev[c]);
+      }
+      app.fitBounds?.(b.x0, b.y0 - lift, b.x1, b.y1 - lift, { padding: entity.kind === "city" ? 60 : 44 });
     }
     app.requestDraw?.();
     return entity;

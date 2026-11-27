@@ -6,6 +6,7 @@ export class Camera {
     this.x = 2400;
     this.y = 1900;
     this.zoom = 0.25; // pixels per km
+    this.yScale = 1.0; // vertical foreshortening factor (1.0 in 2D, <1.0 in 2.5D relief)
     this.minZoom = opts.minZoom ?? 0.12;
     this.maxZoom = opts.maxZoom ?? 4.8;
 
@@ -65,11 +66,20 @@ export class Camera {
     };
   }
 
+  setYScale(nextYScale) {
+    const clamped = Math.max(0.45, Math.min(1.0, Number(nextYScale) || 1.0));
+    if (Math.abs(clamped - this.yScale) < 1e-4) return false;
+    this.yScale = clamped;
+    this._anim = null;
+    this._onFrame();
+    return true;
+  }
+
   worldToScreen(wx, wy) {
     const { sx, sy } = this.viewportCenterScreen();
     return {
       x: sx + (wx - this.x) * this.zoom,
-      y: sy + (wy - this.y) * this.zoom,
+      y: sy + (wy - this.y) * this.zoom * this.yScale,
     };
   }
 
@@ -77,7 +87,7 @@ export class Camera {
     const c = this.viewportCenterScreen();
     return {
       x: this.x + (sx - c.sx) / this.zoom,
-      y: this.y + (sy - c.sy) / this.zoom,
+      y: this.y + (sy - c.sy) / (this.zoom * this.yScale),
     };
   }
 
@@ -91,7 +101,7 @@ export class Camera {
     this._anim = null;
     this.isInteracting = true;
     this.x -= dx / this.zoom;
-    this.y -= dy / this.zoom;
+    this.y -= dy / (this.zoom * this.yScale);
     this._onFrame();
     this._scheduleSettle(110, false);
   }
@@ -105,7 +115,7 @@ export class Camera {
     this.zoom = nextZoom;
     const c = this.viewportCenterScreen();
     this.x = before.x - (sx - c.sx) / this.zoom;
-    this.y = before.y - (sy - c.sy) / this.zoom;
+    this.y = before.y - (sy - c.sy) / (this.zoom * this.yScale);
     this._onFrame();
     this._scheduleSettle(instant ? 0 : 140, true);
   }
@@ -170,7 +180,7 @@ export class Camera {
     const pad = opts.padding ?? 36;
     const avail = this.availableSize();
     const bw = Math.max(40, x1 - x0);
-    const bh = Math.max(40, y1 - y0);
+    const bh = Math.max(40, (y1 - y0) * this.yScale);
     const zx = Math.max(0.05, (avail.w - pad * 2) / bw);
     const zy = Math.max(0.05, (avail.h - pad * 2) / bh);
     let targetZoom = Math.min(zx, zy);

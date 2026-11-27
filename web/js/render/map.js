@@ -3,12 +3,13 @@
 import { rgbToHex, rgba, provinceColor } from '../color.js';
 import { getTerrainColorHexArr, buildLensColorizer } from '../terrain.js?v=20261127-4';
 import { drawTerrainArt } from './art/terrain.js';
-import { drawWaterFeatures } from './art/water.js';
-import { drawBorders } from './art/borders.js';
+import { drawWaterFeatures } from './art/water.js?v=20261127-5';
+import { drawBorders } from './art/borders.js?v=20261127-5';
 import { drawResources } from './art/resources.js';
 import { drawIsohyet400 } from './art/climate.js?v=20261127-4';
-import { drawProvinceLabels } from './art/labels.js?v=20261127-2';
-import { drawOverlay } from './overlays.js?v=20261127-4';
+import { isElevation25D, drawElevation25D } from './art/elevation25d.js?v=20261127-5';
+import { drawProvinceLabels } from './art/labels.js?v=20261127-5';
+import { drawOverlay } from './overlays.js?v=20261127-5';
 
 export function createMapRenderer({ canvas, cam, app }) {
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -59,6 +60,8 @@ export function createMapRenderer({ canvas, cam, app }) {
 
     const vb = cam.viewBoundsWorld();
     const zoom = cam.zoom;
+    const yScale = cam.yScale || 1;
+    const is25D = isElevation25D(app.state);
     const dpr = cam.dpr;
 
     // 240 CSS-px margin around viewport so normal drags stay 100% inside cache without mid-drag rebakes
@@ -71,7 +74,7 @@ export function createMapRenderer({ canvas, cam, app }) {
     const maxDim = 3072;
     const effDpr = zoom < 0.5 ? Math.min(dpr, 1.5) : dpr;
     let cacheW = Math.max(2, Math.round((x1 - x0) * zoom * effDpr));
-    let cacheH = Math.max(2, Math.round((y1 - y0) * zoom * effDpr));
+    let cacheH = Math.max(2, Math.round((y1 - y0) * zoom * yScale * effDpr));
     if (cacheW > maxDim || cacheH > maxDim) {
       const s = Math.min(maxDim / cacheW, maxDim / cacheH);
       cacheW = Math.round(cacheW * s);
@@ -83,7 +86,8 @@ export function createMapRenderer({ canvas, cam, app }) {
       cacheCanvas.height = cacheH;
     }
 
-    const scaleTotal = cacheW / (x1 - x0);
+    const scaleX = cacheW / (x1 - x0);
+    const scaleY = cacheH / (y1 - y0);
 
     // 1. Deep ocean background
     cacheCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -91,7 +95,7 @@ export function createMapRenderer({ canvas, cam, app }) {
     cacheCtx.fillRect(0, 0, cacheW, cacheH);
 
     cacheCtx.save();
-    cacheCtx.scale(scaleTotal, scaleTotal);
+    cacheCtx.scale(scaleX, scaleY);
     cacheCtx.translate(-x0, -y0);
 
     // Determine visible cell bounding box [r0..r1] x [c0..c1]
@@ -101,14 +105,63 @@ export function createMapRenderer({ canvas, cam, app }) {
     const c0 = Math.max(0, Math.floor((x0 - W * 1.5) / W));
     const c1 = Math.min(cols - 1, Math.ceil((x1 + W * 1.5) / W));
 
-    const landCells = [];
-    const unselectedLandCells = [];
-    const bandMatchCells = [];
     const dimExceptState = currentDimExceptState();
     const activeLens = app.state.lens;
     const colorizer = activeLens ? buildLensColorizer(w, app.data, activeLens) : null;
     const colorArr = colorizer ? colorizer.colorHexArr : getTerrainColorHexArr(w);
     const activeBand = app.state.band;
+    const bounds = { x0, y0, x1, y1 };
+    const CHUNK = 250;
+
+    if (is25D) {
+      // Flat base pass: coastal shelf & dark neighboring land
+      const bgBuckets = new Map();
+      for (let r = r0; r <= r1; r++) {
+        const rowOff = r * cols;
+        for (let c = c0; c <= c1; c++) {
+          const i = rowOff + c;
+          if (owner[i] >= 0) continue;
+          const hex = colorArr[i];
+          if (!hex) continue;
+          let bucket = bgBuckets.get(hex);
+          if (!bucket) {
+            bucket = [];
+            bgBuckets.set(hex, bucket);
+          }
+          bucket.push(i);
+        }
+      }
+      for (const [fillHex, list] of bgBuckets) {
+        cacheCtx.fillStyle = fillHex;
+        for (let off = 0; off < list.length; off += CHUNK) {
+          cacheCtx.beginPath();
+          const end = Math.min(list.length, off + CHUNK);
+          for (let k = off; k < end; k++) {
+            const i = list[k];
+            traceHexSubpath(cacheCtx, cxArr[i], cyArr[i], corners, 1.018);
+          }
+          cacheCtx.fill();
+        }
+      }
+
+      // South China Sea dashed line on sea plane
+      drawWaterFeatures(cacheCtx, w, zoom, bounds, { scsOnly: true });
+
+      // 2.5D extruded China hex prisms (North -> South painter's order + lifted depth-occluded borders)
+      drawElevation25D(cacheCtx, w, colorizer, activeBand, dimExceptState, zoom, bounds);
+
+      // Lifted province serif labels (aspect-compensated for yScale)
+      drawProvinceLabels(cacheCtx, w, app.state, zoom, bounds, dimExceptState, yScale, true);
+
+      cacheCtx.restore();
+      cacheMeta = { x0, y0, x1, y1, zoom, yScale, is25D, dpr, cacheW, cacheH, dimState: dimExceptState };
+      staticDirty = false;
+      return;
+    }
+
+    const landCells = [];
+    const unselectedLandCells = [];
+    const bandMatchCells = [];
     const dimCache = new Map();
 
     // 2. Color-batched hex tiles pass, chunked to <=250 hexes per beginPath() so Skia tessellator stays <1ms
@@ -148,7 +201,6 @@ export function createMapRenderer({ canvas, cam, app }) {
       }
     }
 
-    const CHUNK = 250;
     for (const [fillHex, list] of buckets) {
       cacheCtx.fillStyle = fillHex;
       for (let off = 0; off < list.length; off += CHUNK) {
@@ -207,7 +259,6 @@ export function createMapRenderer({ canvas, cam, app }) {
     }
 
     // 5. Rivers, lakes & South China Sea dashed line (cached Path2D in water.js)
-    const bounds = { x0, y0, x1, y1 };
     drawWaterFeatures(cacheCtx, w, zoom, bounds);
 
     // 6. Provincial border ribbons & national border (pre-indexed + viewport culled)
@@ -282,11 +333,11 @@ export function createMapRenderer({ canvas, cam, app }) {
     }
 
     // 10. Province labels
-    drawProvinceLabels(cacheCtx, w, app.state, zoom, bounds, dimExceptState);
+    drawProvinceLabels(cacheCtx, w, app.state, zoom, bounds, dimExceptState, yScale, false);
 
     cacheCtx.restore();
 
-    cacheMeta = { x0, y0, x1, y1, zoom, dpr, cacheW, cacheH, dimState: dimExceptState };
+    cacheMeta = { x0, y0, x1, y1, zoom, yScale, is25D, dpr, cacheW, cacheH, dimState: dimExceptState };
     staticDirty = false;
   }
 
@@ -310,6 +361,7 @@ export function createMapRenderer({ canvas, cam, app }) {
   function canScaleBlitDuringInteraction(vb) {
     if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) return false;
     if (cacheMeta.dimState !== currentDimExceptState()) return false;
+    if (cacheMeta.yScale !== (cam.yScale || 1) || cacheMeta.is25D !== isElevation25D(app.state)) return false;
     const zoomRatio = cacheMeta.zoom / cam.zoom;
     if (zoomRatio < 0.35 || zoomRatio > 2.8) return false;
     return cacheCoversBounds(vb);
@@ -318,6 +370,7 @@ export function createMapRenderer({ canvas, cam, app }) {
   function shouldBakeNow() {
     if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) return true;
     if (cacheMeta.dimState !== currentDimExceptState()) return true;
+    if (cacheMeta.yScale !== (cam.yScale || 1) || cacheMeta.is25D !== isElevation25D(app.state)) return true;
     const vb = cam.viewBoundsWorld();
     if (cam.isInteracting) {
       return !canScaleBlitDuringInteraction(vb);
@@ -382,7 +435,14 @@ export function createMapRenderer({ canvas, cam, app }) {
   }
 
   function onCameraSettle(zoomed = false) {
-    if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr || cacheMeta.dimState !== currentDimExceptState()) {
+    if (
+      !cacheMeta ||
+      staticDirty ||
+      cacheMeta.dpr !== cam.dpr ||
+      cacheMeta.dimState !== currentDimExceptState() ||
+      cacheMeta.yScale !== (cam.yScale || 1) ||
+      cacheMeta.is25D !== isElevation25D(app.state)
+    ) {
       staticDirty = true;
       requestDraw();
       return;

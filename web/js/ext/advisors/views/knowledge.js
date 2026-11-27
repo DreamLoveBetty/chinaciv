@@ -1,7 +1,7 @@
 // Advisor 5: 国子监祭酒 (Knowledge & Science — STEM 1/5 Shenzhen vs 1/14 National, Broadband, Top R&D Universities)
 import { esc, fin, sum } from "../core/util.js";
 import { fmtPop, dec, pct, int } from "../core/fmt.js";
-import { ensureDatasets } from "../core/data.js";
+import { ensureDatasets } from "../core/data.js?v=20261127-5";
 import { barList } from "../core/charts.js";
 import { section, tiles, callout, segmented, mapColorPicker, sourcesHtml } from "../core/view.js";
 

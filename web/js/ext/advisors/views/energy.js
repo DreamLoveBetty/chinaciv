@@ -1,7 +1,7 @@
 // Advisor 1: 能源与资源大臣 (Energy & Resources)
 import { esc, fin, sum, CAT_COLORS } from "../core/util.js";
 import { fmtPowerGw, fmtPowerMw, int, dec, pct } from "../core/fmt.js";
-import { ensureDatasets } from "../core/data.js";
+import { ensureDatasets } from "../core/data.js?v=20261127-5";
 import { shareBar, barList } from "../core/charts.js";
 import { section, tiles, callout, chips, segmented, sourcesHtml, frameBtn } from "../core/view.js";
 

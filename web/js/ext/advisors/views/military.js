@@ -1,7 +1,7 @@
 // Advisor 7: 大将军 (Military & Defense — 5 PLA Theater Commands, Bases, Ranges & Branch Breakdown)
 import { esc, fin, CAT_COLORS } from "../core/util.js";
 import { int } from "../core/fmt.js";
-import { ensureDatasets } from "../core/data.js";
+import { ensureDatasets } from "../core/data.js?v=20261127-5";
 import { shareBar, barList } from "../core/charts.js";
 import { section, tiles, chips, sourcesHtml, frameBtn } from "../core/view.js";
 

@@ -56,12 +56,21 @@ export function initLenses(app) {
       const colorizer = buildLensColorizer(app.w, app.data, activeLens);
       const bands = colorizer?.bands || [];
       const isIso400 = activeLens.id === 'precip';
+      const isElev = activeLens.id === 'elevation';
+      const is25D = isElev && app.state.elevation25D !== false;
       legendHtml = `
         <div class="lens-legend">
           <div class="legend-meta">
             <span class="legend-name">${escHtml(activeLens.label || activeLens.name)}</span>
             <span class="legend-unit">${escHtml(activeLens.unit || '点击色块筛选区间')}</span>
           </div>
+          ${
+            isElev
+              ? `<button id="elev-25d-btn" class="legend-25d-btn ${is25D ? 'active' : ''}" type="button" title="切换 2.5D 立体浮雕 / 2D 平面视图">
+                   <span>${is25D ? '🧊 2.5D 立体' : '🗺️ 2D 平面'}</span>
+                 </button>`
+              : ''
+          }
           ${
             isIso400
               ? `<span class="legend-isohyet-tag" title="WorldClim v2.1 实测400毫米等降水量线（大兴安岭—张家口—兰州—拉萨）">
@@ -147,6 +156,10 @@ export function initLenses(app) {
       app.setShowResources(!app.state.showResources);
     });
 
+    dock.querySelector('#elev-25d-btn')?.addEventListener('click', () => {
+      app.setElevation25D(!(app.state.elevation25D !== false));
+    });
+
     dock.querySelectorAll('[data-lens-id]').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const lid = btn.dataset.lensId;
@@ -190,6 +203,7 @@ export function initLenses(app) {
   });
 
   app.on('lens', render);
+  app.on('elevation25d', render);
   app.on('band', render);
   app.on('resources:change', render);
   app.on('data:lenses', render);

@@ -1,6 +1,6 @@
 // Provincial color border ribbons, national borders, and coastal glow using pre-indexed edges + viewport culling
 
-import { EDGE_CORNERS } from '../../world.js';
+import { EDGE_CORNERS } from '../../world.js?v=20261127-5';
 import { provinceColor, rgba } from '../../color.js';
 
 function traceEdgePairs(ctx, edges, cxArr, cyArr, corners, scale, x0, y0, x1, y1) {

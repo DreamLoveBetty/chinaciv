@@ -1,7 +1,7 @@
 // Advisor 9: 太常礼官 (Culture, Wonders & Hazards — Wonders by Public Rules, Traditions, Wellbeing & Disasters)
 import { esc, fin, sum, CAT_COLORS } from "../core/util.js";
 import { dec, int, pct } from "../core/fmt.js";
-import { ensureDatasets } from "../core/data.js";
+import { ensureDatasets } from "../core/data.js?v=20261127-5";
 import { shareBar, barList } from "../core/charts.js";
 import { section, tiles, segmented, mapColorPicker, sourcesHtml } from "../core/view.js";
 

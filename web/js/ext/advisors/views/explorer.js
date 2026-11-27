@@ -2,7 +2,7 @@
 // Linked Scatter Plot (Linear/Log, Pearson r/R^2, Drag-Brush Selection) + Virtualized/Paginated Table + CSV Export + Map Lens Sync.
 import { esc, fin } from "../core/util.js";
 import { fmtField, parseNum } from "../core/fmt.js";
-import { GROUP_LABELS } from "../core/data.js";
+import { GROUP_LABELS } from "../core/data.js?v=20261127-5";
 import { createScatter } from "../core/scatter.js";
 import { createTable } from "../core/table.js";
 import { section, segmented, selectBox, sourcesHtml, frameBtn } from "../core/view.js";

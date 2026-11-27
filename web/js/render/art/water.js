@@ -84,12 +84,13 @@ function ensureWaterPaths(w) {
   }
 }
 
-export function drawWaterFeatures(ctx, w, zoom) {
+export function drawWaterFeatures(ctx, w, zoom, bounds = null, opts = {}) {
+  const { scsOnly = false } = opts;
   ensureWaterPaths(w);
   ctx.save();
 
   // 1. Lakes
-  if (w._lakesPath) {
+  if (!scsOnly && w._lakesPath) {
     ctx.fillStyle = '#185482';
     ctx.strokeStyle = '#5da9d6';
     ctx.lineWidth = Math.max(0.8, 1.3 / zoom);
@@ -98,7 +99,7 @@ export function drawWaterFeatures(ctx, w, zoom) {
   }
 
   // 2. Rivers (3 passes reusing cached Path2D)
-  if (w._riversPath) {
+  if (!scsOnly && w._riversPath) {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 

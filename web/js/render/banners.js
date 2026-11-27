@@ -2,6 +2,7 @@
 
 import { provinceColor, rgba } from '../color.js';
 import { fmtPop } from '../format.js';
+import { isElevation25D, elevLiftKm } from './art/elevation25d.js?v=20261127-5';
 
 function roundRectPath(ctx, x, y, w, h, r) {
   const rad = Math.min(r, w * 0.5, h * 0.5);
@@ -79,6 +80,7 @@ export function drawCityBanners(ctx, w, cam, state, data) {
   const margin = 4;
   const hasExtDim = Boolean(state.highlight && (state.highlight.dim || state.highlight.dimOthers));
   const dimOthers = state.selectedState != null && state.mode === 'map' && !hasExtDim;
+  const is25D = isElevation25D(state);
 
   ctx.save();
   ctx.textBaseline = 'middle';
@@ -89,7 +91,8 @@ export function drawCityBanners(ctx, w, cam, state, data) {
     const wy = city.y ?? (city.cell >= 0 ? w.cy(city.cell) : null);
     if (wx == null || wy == null) continue;
 
-    const pt = cam.worldToScreen(wx, wy);
+    const lift = is25D && city.cell >= 0 && w.elev ? elevLiftKm(w.elev[city.cell]) : 0;
+    const pt = cam.worldToScreen(wx, wy - lift);
     if (pt.x < -140 || pt.x > cam.width + 140 || pt.y < -60 || pt.y > cam.height + 60) continue;
 
     const isSelected =

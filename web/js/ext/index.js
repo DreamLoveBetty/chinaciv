@@ -2,8 +2,8 @@
 
 const EXTENSION_MODULES = [
   './layers/index.js?v=20261127-4',
-  './cityView/index.js',
-  './advisors/index.js',
+  './cityView/index.js?v=20261127-5',
+  './advisors/index.js?v=20261127-5',
 ];
 
 export async function loadExtensions(app) {

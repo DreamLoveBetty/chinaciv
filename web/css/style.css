@@ -973,6 +973,32 @@ body {
   background: linear-gradient(90deg, #ff4f38 0%, #fff2bd 50%, #ff4f38 100%);
   box-shadow: 0 0 6px rgba(255, 79, 56, 0.85);
 }
+.legend-25d-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  margin-right: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(201, 164, 92, 0.45);
+  background: rgba(16, 26, 38, 0.9);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.14s, background 0.14s, color 0.14s;
+}
+.legend-25d-btn:hover {
+  border-color: var(--gold-bright);
+  color: var(--gold-bright);
+}
+.legend-25d-btn.active {
+  background: linear-gradient(180deg, rgba(196, 152, 68, 0.32), rgba(140, 102, 34, 0.48));
+  border-color: var(--gold-bright);
+  color: #fff3cf;
+  box-shadow: 0 0 8px rgba(236, 208, 142, 0.28);
+}
 
 /* ==================== TOOLTIP ==================== */
 .map-tooltip {

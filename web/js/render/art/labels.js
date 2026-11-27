@@ -1,5 +1,7 @@
 // Provincial map labels rendered in serif typography with subtle halo & viewport culling
 
+import { elevLiftKm } from './elevation25d.js?v=20261127-5';
+
 const SHORT_PROV = {
   北京市: '北京', 天津市: '天津', 河北省: '河北', 山西省: '山西', 内蒙古自治区: '内蒙古',
   辽宁省: '辽宁', 吉林省: '吉林', 黑龙江省: '黑龙江', 上海市: '上海', 江苏省: '江苏',
@@ -10,7 +12,7 @@ const SHORT_PROV = {
   新疆维吾尔自治区: '新疆', 台湾省: '台湾', 香港特别行政区: '香港', 澳门特别行政区: '澳门',
 };
 
-export function drawProvinceLabels(ctx, w, state, zoom, bounds = null, dimExceptState = -1) {
+export function drawProvinceLabels(ctx, w, state, zoom, bounds = null, dimExceptState = -1, yScale = 1, is25D = false) {
   const states = state.states && state.states.length ? state.states : w.states || [];
   if (!states.length) return;
 
@@ -18,7 +20,7 @@ export function drawProvinceLabels(ctx, w, state, zoom, bounds = null, dimExcept
   const x0 = bounds ? bounds.x0 - pad : -Infinity;
   const y0 = bounds ? bounds.y0 - pad : -Infinity;
   const x1 = bounds ? bounds.x1 + pad : Infinity;
-  const y1 = bounds ? bounds.y1 + pad : Infinity;
+  const y1 = bounds ? bounds.y1 + 310 + pad : Infinity;
 
   ctx.save();
   ctx.textAlign = 'center';
@@ -45,7 +47,8 @@ export function drawProvinceLabels(ctx, w, state, zoom, bounds = null, dimExcept
     if (isTiny && zoom < 0.55 && !isSelected) continue;
 
     const lx = sb.labelX;
-    const ly = sb.labelY - (zoom < 0.45 ? 18 / zoom : 26 / zoom);
+    const lift = is25D && w.elev && sb.labelCell >= 0 ? elevLiftKm(w.elev[sb.labelCell]) : 0;
+    const ly = sb.labelY - lift - ((zoom < 0.45 ? 18 / zoom : 26 / zoom) / Math.max(0.45, yScale));
     if (lx < x0 || lx > x1 || ly < y0 || ly > y1) continue;
 
     if (dimExceptState >= 0) {
@@ -62,8 +65,17 @@ export function drawProvinceLabels(ctx, w, state, zoom, bounds = null, dimExcept
     }
 
     const txt = zoom >= 0.55 || isSelected ? (st.name || SHORT_PROV[name] || name) : (SHORT_PROV[name] || st.abbr || name);
-    ctx.strokeText(txt, lx, ly);
-    ctx.fillText(txt, lx, ly);
+    if (yScale !== 1) {
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.scale(1, 1 / yScale);
+      ctx.strokeText(txt, 0, 0);
+      ctx.fillText(txt, 0, 0);
+      ctx.restore();
+    } else {
+      ctx.strokeText(txt, lx, ly);
+      ctx.fillText(txt, lx, ly);
+    }
   }
 
   ctx.restore();

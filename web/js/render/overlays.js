@@ -1,9 +1,10 @@
 // Dynamic 60fps overlay renderer: memoized highlight cells, batched draw calls, fast selection & banners
 
-import { EDGE_CORNERS } from '../world.js';
+import { EDGE_CORNERS } from '../world.js?v=20261127-5';
 import { provinceColor, rgba } from '../color.js';
-import { drawCityBanners } from './banners.js?v=20261127-2';
+import { drawCityBanners } from './banners.js?v=20261127-5';
 import { drawIsohyet400Labels } from './art/climate.js?v=20261127-4';
+import { isElevation25D, elevLiftKm } from './art/elevation25d.js?v=20261127-5';
 
 function strokeHex(ctx, cx, cy, corners, scale = 1) {
   ctx.beginPath();
@@ -81,13 +82,15 @@ function getHighlightedCells(w, hl, state, data) {
 
 export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
   const { dpr, zoom } = cam;
+  const yScale = cam.yScale || 1;
+  const is25D = isElevation25D(state);
   const { cxArr, cyArr, corners, R } = w;
   const vb = cam.viewBoundsWorld();
   const cullPad = R * 1.6;
   const vx0 = vb.x0 - cullPad;
   const vy0 = vb.y0 - cullPad;
   const vx1 = vb.x1 + cullPad;
-  const vy1 = vb.y1 + cullPad;
+  const vy1 = vb.y1 + cullPad + (is25D ? 310 : 0);
 
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -96,7 +99,7 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
   const cScreen = cam.viewportCenterScreen();
   ctx.save();
   ctx.translate(cScreen.sx, cScreen.sy);
-  ctx.scale(zoom, zoom);
+  ctx.scale(zoom, zoom * yScale);
   ctx.translate(-cam.x, -cam.y);
 
   // 1. Highlight / Brush overlay (Explorer & Advisors)
@@ -107,7 +110,7 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
     if (shouldDim) {
       const dimAlpha = typeof shouldDim === 'number' ? shouldDim : 0.56;
       ctx.fillStyle = `rgba(6, 13, 22, ${dimAlpha})`;
-      ctx.fillRect(vb.x0 - 50, vb.y0 - 50, vb.x1 - vb.x0 + 100, vb.y1 - vb.y0 + 100);
+      ctx.fillRect(vb.x0 - 50, vb.y0 - 50, vb.x1 - vb.x0 + 100, vb.y1 - vb.y0 + 360);
     }
 
     if (hlCells && hlCells.length > 0) {
@@ -121,7 +124,8 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
         const x = cxArr[ci];
         const y = cyArr[ci];
         if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
-        traceHexSubpath(ctx, x, y, corners, 0.98);
+        const lift = is25D && w.elev ? elevLiftKm(w.elev[ci]) : 0;
+        traceHexSubpath(ctx, x, y - lift, corners, 0.98);
       }
       ctx.fill();
       ctx.stroke();
@@ -131,8 +135,9 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
     if (Array.isArray(hl.bubbles) && hl.bubbles.length) {
       for (const b of hl.bubbles) {
         const bx = b.x ?? (b.cell >= 0 ? cxArr[b.cell] : null);
-        const by = b.y ?? (b.cell >= 0 ? cyArr[b.cell] : null);
+        let by = b.y ?? (b.cell >= 0 ? cyArr[b.cell] : null);
         if (bx == null || by == null || bx < vx0 - 40 || bx > vx1 + 40 || by < vy0 - 40 || by > vy1 + 40) continue;
+        if (is25D && b.cell >= 0 && w.elev) by -= elevLiftKm(w.elev[b.cell]);
         const rad = Math.max(6 / zoom, (b.r || 12) / Math.pow(zoom, 0.55));
         ctx.beginPath();
         ctx.arc(bx, by, rad, 0, Math.PI * 2);
@@ -147,8 +152,9 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
     // Pulse marker
     if (hl.pulse) {
       const px = hl.pulse.x ?? (hl.pulse.cell >= 0 ? cxArr[hl.pulse.cell] : null);
-      const py = hl.pulse.y ?? (hl.pulse.cell >= 0 ? cyArr[hl.pulse.cell] : null);
+      let py = hl.pulse.y ?? (hl.pulse.cell >= 0 ? cyArr[hl.pulse.cell] : null);
       if (px != null && py != null) {
+        if (is25D && hl.pulse.cell >= 0 && w.elev) py -= elevLiftKm(w.elev[hl.pulse.cell]);
         ctx.beginPath();
         ctx.arc(px, py, 24 / Math.max(0.2, zoom), 0, Math.PI * 2);
         ctx.strokeStyle = hl.pulse.color || '#ffe59c';
@@ -171,10 +177,11 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
       const x = cxArr[ci];
       const y = cyArr[ci];
       if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+      const lift = is25D && w.elev ? elevLiftKm(w.elev[ci]) : 0;
       const d = edges[k + 1];
       const [k1, k2] = EDGE_CORNERS[d];
-      ctx.moveTo(x + corners[k1][0], y + corners[k1][1]);
-      ctx.lineTo(x + corners[k2][0], y + corners[k2][1]);
+      ctx.moveTo(x + corners[k1][0], y - lift + corners[k1][1]);
+      ctx.lineTo(x + corners[k2][0], y - lift + corners[k2][1]);
     }
 
     ctx.strokeStyle = rgba(col, 0.34);
@@ -201,7 +208,8 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
       ctx.beginPath();
       for (const ci of fp) {
         if (ci < 0 || ci >= w.N) continue;
-        traceHexSubpath(ctx, cxArr[ci], cyArr[ci], corners, 0.96);
+        const lift = is25D && w.elev ? elevLiftKm(w.elev[ci]) : 0;
+        traceHexSubpath(ctx, cxArr[ci], cyArr[ci] - lift, corners, 0.96);
       }
       ctx.fill();
       ctx.stroke();
@@ -211,7 +219,8 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
   // 4. Hover cell outline
   const hc = state.hoverCell;
   if (hc >= 0 && hc < w.N && w.owner[hc] >= -1) {
-    strokeHex(ctx, cxArr[hc], cyArr[hc], corners, 0.98);
+    const hLift = is25D && w.owner[hc] >= 0 && w.elev ? elevLiftKm(w.elev[hc]) : 0;
+    strokeHex(ctx, cxArr[hc], cyArr[hc] - hLift, corners, 0.98);
     ctx.fillStyle = 'rgba(255, 244, 210, 0.12)';
     ctx.fill();
     ctx.strokeStyle = w.owner[hc] >= 0 ? 'rgba(255, 232, 166, 0.9)' : 'rgba(130, 195, 235, 0.45)';

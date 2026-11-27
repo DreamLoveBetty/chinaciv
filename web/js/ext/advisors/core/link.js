@@ -3,7 +3,7 @@
 // - createBubbles(app, id, opts): proportional world-space bubbles rendered via app.registerOverlay with hit testing
 // - createMapTip(): floating dark-gold tooltip over hovered map bubbles
 import { fin, esc, withAlpha } from "./util.js";
-import { mapArea, worldToScreenPt } from "./frame.js";
+import { mapArea, worldToScreenPt } from "./frame.js?v=20261127-5";
 
 const HOVER_COLOR = "#fff3c4";
 const GOLD = "#ffd36a";

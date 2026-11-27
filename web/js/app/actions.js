@@ -1,6 +1,14 @@
 // High-level application actions: lenses, bands, selection, camera framing, layers, highlights
 
+import { TILT_25D, isElevation25D, elevLiftKm } from '../render/art/elevation25d.js?v=20261127-5';
+
 export function createActions(app, renderer) {
+  function syncCameraTilt() {
+    if (typeof app.cam?.setYScale === 'function') {
+      app.cam.setYScale(isElevation25D(app.state) ? TILT_25D : 1.0);
+    }
+  }
+
   function findLens(lensOrId) {
     if (!lensOrId || lensOrId === 'terrain') return null;
     if (typeof lensOrId === 'object') return lensOrId;
@@ -60,11 +68,22 @@ export function createActions(app, renderer) {
         if (next) app.hash.set('lens', next.id);
         else app.hash.del('lens');
       }
+      syncCameraTilt();
       renderer.invalidateStatic();
       renderer.requestDraw();
       app.emit('lens', { lens: next, prev });
       app.emit('lens:change', { lens: next, prev });
       app.emit('band', { band: null });
+      return next;
+    },
+    setElevation25D(enabled) {
+      const next = Boolean(enabled);
+      if (app.state.elevation25D === next) return next;
+      app.state.elevation25D = next;
+      syncCameraTilt();
+      renderer.invalidateStatic();
+      renderer.requestDraw();
+      app.emit('elevation25d', { enabled: next });
       return next;
     },
     setBand(band) {
@@ -116,15 +135,18 @@ export function createActions(app, renderer) {
       if (!city || !app.w) return;
       const wx = city.x ?? app.w.cx(city.cell);
       const wy = city.y ?? app.w.cy(city.cell);
+      const lift = isElevation25D(app.state) && city.cell >= 0 && app.w.elev ? elevLiftKm(app.w.elev[city.cell]) : 0;
       const targetZoom = opts.zoom ?? Math.max(app.cam.zoom, 0.95);
-      app.cam.animateTo(wx, wy, targetZoom, opts);
+      app.cam.animateTo(wx, wy - lift, targetZoom, opts);
     },
     focusState(idxOrKey, opts = {}) {
       const idx = resolveStateIdx(idxOrKey);
       if (idx == null || !app.w) return;
       const sb = app.w.stateBounds[idx];
       if (!sb) return;
-      app.cam.fitBounds(sb.x0, sb.y0, sb.x1, sb.y1, { padding: 48, maxZoom: 1.4, ...opts });
+      const anchorCell = app.state.states?.[idx]?.cell ?? sb.labelCell ?? -1;
+      const lift = isElevation25D(app.state) && anchorCell >= 0 && app.w.elev ? elevLiftKm(app.w.elev[anchorCell]) : 0;
+      app.cam.fitBounds(sb.x0, sb.y0 - lift, sb.x1, sb.y1 - lift * 0.25, { padding: 48, maxZoom: 1.4, ...opts });
     },
     fitBounds(x0, y0, x1, y1, opts = {}) {
       app.cam.fitBounds(x0, y0, x1, y1, opts);

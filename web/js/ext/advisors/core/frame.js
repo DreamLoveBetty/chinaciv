@@ -1,4 +1,12 @@
 // Viewport framing helpers so China and selected regions fit cleanly beside the left dock.
+import { isElevation25D, elevLiftKm } from "../../../render/art/elevation25d.js?v=20261127-5";
+
+function worldLiftKm(app, wx, wy, cellIdx = -1) {
+  if (!isElevation25D(app?.state) || !app?.w?.elev) return 0;
+  const w = app.w;
+  const c = cellIdx >= 0 ? cellIdx : typeof w.cellAt === "function" ? w.cellAt(wx, wy) : -1;
+  return c >= 0 && c < w.elev.length ? elevLiftKm(w.elev[c]) : 0;
+}
 
 export function mapArea(app) {
   const cs = getComputedStyle(document.documentElement);
@@ -17,18 +25,21 @@ export function mapArea(app) {
 }
 
 export function frameBox(app, x0, y0, x1, y1, opts = {}) {
+  const lift = worldLiftKm(app, (x0 + x1) / 2, (y0 + y1) / 2);
+  const ay0 = y0 - lift;
+  const ay1 = y1 - lift;
   if (typeof app.fitBounds === "function") {
-    app.fitBounds(x0, y0, x1, y1, { animate: true, padding: 36, ...opts });
+    app.fitBounds(x0, ay0, x1, ay1, { animate: true, padding: 36, ...opts });
     return;
   }
   const area = mapArea(app);
   const aw = Math.max(120, area.x1 - area.x0);
   const ah = Math.max(120, area.y1 - area.y0);
   const bw = Math.max(20, x1 - x0);
-  const bh = Math.max(20, y1 - y0);
+  const bh = Math.max(20, ay1 - ay0);
   const zoom = Math.min(aw / bw, ah / bh) * 0.9;
   const wx = (x0 + x1) / 2;
-  const wy = (y0 + y1) / 2;
+  const wy = (ay0 + ay1) / 2;
   if (app.cam?.animateTo) {
     app.cam.animateTo(wx, wy, zoom, { duration: opts.duration ?? 420 });
   } else if (app.cam) {
@@ -54,18 +65,19 @@ export function frameNation(app, opts = {}) {
   frameBox(app, 0, 0, g.cols * (g.W || 25), g.rows * (g.H_step || 21.65), opts);
 }
 
-export function worldToScreenPt(app, wx, wy) {
+export function worldToScreenPt(app, wx, wy, cellIdx = -1) {
   const cam = app.cam;
   if (!cam) return { x: 0, y: 0 };
+  const adjY = wy - worldLiftKm(app, wx, wy, cellIdx);
   if (typeof cam.worldToScreen === "function") {
-    const p = cam.worldToScreen(wx, wy);
+    const p = cam.worldToScreen(wx, adjY);
     return Array.isArray(p) ? { x: p[0], y: p[1] } : p;
   }
   if (typeof cam.toScreen === "function") {
-    const p = cam.toScreen(wx, wy);
+    const p = cam.toScreen(wx, adjY);
     return Array.isArray(p) ? { x: p[0], y: p[1] } : p;
   }
-  return { x: wx, y: wy };
+  return { x: wx, y: adjY };
 }
 
 export function frameIfHidden(app, box) {
