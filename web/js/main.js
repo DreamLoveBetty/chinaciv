@@ -2,7 +2,7 @@
 
 import { Camera } from './camera.js';
 import { prepareWorld } from './world.js';
-import { createMapRenderer } from './render/map.js';
+import { createMapRenderer } from './render/map.js?v=20261127-2';
 import { createApp } from './app/api.js';
 import { initTopbar } from './ui/topbar.js';
 import { initSearch } from './ui/search.js';

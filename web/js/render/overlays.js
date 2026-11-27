@@ -2,7 +2,7 @@
 
 import { EDGE_CORNERS } from '../world.js';
 import { provinceColor, rgba } from '../color.js';
-import { drawCityBanners } from './banners.js';
+import { drawCityBanners } from './banners.js?v=20261127-2';
 
 function strokeHex(ctx, cx, cy, corners, scale = 1) {
   ctx.beginPath();

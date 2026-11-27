@@ -6,8 +6,8 @@ import { drawTerrainArt } from './art/terrain.js';
 import { drawWaterFeatures } from './art/water.js';
 import { drawBorders } from './art/borders.js';
 import { drawResources } from './art/resources.js';
-import { drawProvinceLabels } from './art/labels.js';
-import { drawOverlay } from './overlays.js';
+import { drawProvinceLabels } from './art/labels.js?v=20261127-2';
+import { drawOverlay } from './overlays.js?v=20261127-2';
 
 export function createMapRenderer({ canvas, cam, app }) {
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -263,7 +263,7 @@ export function createMapRenderer({ canvas, cam, app }) {
 
     // 9.5 Subtle dimming veil over unselected provinces when a province is selected in map mode
     if (dimExceptState >= 0 && unselectedLandCells.length) {
-      cacheCtx.fillStyle = 'rgba(8, 16, 26, 0.36)';
+      cacheCtx.fillStyle = 'rgba(6, 13, 22, 0.44)';
       for (let off = 0; off < unselectedLandCells.length; off += 300) {
         cacheCtx.beginPath();
         const end = Math.min(unselectedLandCells.length, off + 300);
