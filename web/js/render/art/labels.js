@@ -45,6 +45,8 @@ export function drawProvinceLabels(ctx, w, state, zoom, bounds = null, dimExcept
     const name = st.name || '';
     const isTiny = sb.count <= 4;
     if (isTiny && zoom < 0.55 && !isSelected) continue;
+    // Skip redundant municipal/SAR watermarks when zoomed into 3D skyline (banner already names them)
+    if (!is25D && !state.lens && !isSelected && sb.count <= 30 && zoom >= 0.68) continue;
 
     const lx = sb.labelX;
     const lift = is25D && w.elev && sb.labelCell >= 0 ? elevLiftKm(w.elev[sb.labelCell]) : 0;

@@ -2,6 +2,7 @@
 
 const DATA_FILES = {
   world: 'data/world.json?v=20261127-4',
+  backdrop: 'data/world_backdrop.json?v=20261128-4',
   geo_lookup: 'data/geo_lookup.json',
   nation: 'data/nation.json',
   states: 'data/states.json',

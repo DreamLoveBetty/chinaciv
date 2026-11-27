@@ -1,8 +1,8 @@
 // Floating map hover tooltip with O(1) cell lookup & zero-reflow transform positioning
 
-import { COVER_META, getLensCellValue } from '../terrain.js?v=20261127-4';
+import { COVER_META, getLensCellValue } from '../terrain.js?v=20261128-4';
 import { escHtml, fmtField, fmtNum } from '../format.js';
-import { RESOURCE_STYLES } from '../render/art/resources.js';
+import { RESOURCE_STYLES } from '../render/art/resources.js?v=20261128-3';
 
 let cachedWondersSrc = null;
 let wondersByCell = new Map();

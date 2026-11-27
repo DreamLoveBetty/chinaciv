@@ -1,7 +1,7 @@
 // Unified demand-driven animated flow overlay for Rail (HSR + Conv), Trade Corridors, and Civil Aviation Routes
 
 import { isElevation25D } from '../../render/art/elevation25d.js?v=20261127-5';
-import { ensureRailPaths } from './rail.js?v=20261127-7';
+import { ensureRailPaths } from './rail.js?v=20261128-1';
 import { ensureAirlinePaths } from './airlines.js?v=20261127-7';
 
 function buildPolylineMeta(pts) {

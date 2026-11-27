@@ -1,15 +1,17 @@
 // Offscreen-cached 60fps Canvas 2D hex map renderer with zoom scale-blit & color-batched tile baking
 
 import { rgbToHex, rgba, provinceColor } from '../color.js';
-import { getTerrainColorHexArr, buildLensColorizer } from '../terrain.js?v=20261127-4';
-import { drawTerrainArt } from './art/terrain.js';
+import { getTerrainColorHexArr, buildLensColorizer } from '../terrain.js?v=20261128-4';
+import { drawBackdropHexes, drawBackdropWater } from './art/backdrop.js?v=20261128-4';
+import { drawTerrainArt } from './art/terrain.js?v=20261128-2';
+import { drawIsometricCities, buildCityCoreSet } from './art/cities.js?v=20261128-3';
 import { drawWaterFeatures } from './art/water.js?v=20261127-5';
-import { drawBorders } from './art/borders.js?v=20261127-5';
-import { drawResources } from './art/resources.js';
+import { drawBorders } from './art/borders.js?v=20261128-2';
+import { drawResources } from './art/resources.js?v=20261128-3';
 import { drawIsohyet400 } from './art/climate.js?v=20261127-4';
 import { isElevation25D, drawElevation25D } from './art/elevation25d.js?v=20261127-5';
-import { drawProvinceLabels } from './art/labels.js?v=20261127-5';
-import { drawOverlay } from './overlays.js?v=20261127-5';
+import { drawProvinceLabels } from './art/labels.js?v=20261128-3';
+import { drawOverlay } from './overlays.js?v=20261128-3';
 
 export function createMapRenderer({ canvas, cam, app }) {
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -65,13 +67,13 @@ export function createMapRenderer({ canvas, cam, app }) {
     const dpr = cam.dpr;
 
     // 240 CSS-px margin around viewport so normal drags stay 100% inside cache without mid-drag rebakes
-    const padKm = Math.min(950, Math.max(150, 240 / Math.max(0.12, zoom)));
+    const padKm = Math.min(950, Math.max(40, 240 / Math.max(0.12, zoom)));
     const x0 = vb.x0 - padKm;
     const y0 = vb.y0 - padKm;
     const x1 = vb.x1 + padKm;
     const y1 = vb.y1 + padKm;
 
-    const maxDim = 3072;
+    const maxDim = 4096;
     const effDpr = zoom < 0.5 ? Math.min(dpr, 1.5) : dpr;
     let cacheW = Math.max(2, Math.round((x1 - x0) * zoom * effDpr));
     let cacheH = Math.max(2, Math.round((y1 - y0) * zoom * yScale * effDpr));
@@ -114,6 +116,9 @@ export function createMapRenderer({ canvas, cam, app }) {
     const CHUNK = 250;
 
     if (is25D) {
+      // Extended Eurasia-Pacific backdrop land + coastal shelf + muted lakes/rivers under 2.5D prisms
+      drawBackdropHexes(cacheCtx, w, w.backdrop, bounds, zoom);
+
       // Flat base pass: coastal shelf & dark neighboring land
       const bgBuckets = new Map();
       for (let r = r0; r <= r1; r++) {
@@ -144,6 +149,8 @@ export function createMapRenderer({ canvas, cam, app }) {
         }
       }
 
+      drawBackdropWater(cacheCtx, w.backdrop, zoom);
+
       // South China Sea dashed line on sea plane
       drawWaterFeatures(cacheCtx, w, zoom, bounds, { scsOnly: true });
 
@@ -163,6 +170,9 @@ export function createMapRenderer({ canvas, cam, app }) {
     const unselectedLandCells = [];
     const bandMatchCells = [];
     const dimCache = new Map();
+
+    // 1.9 Extended Eurasia-Pacific backdrop land & coastal shelf tiles
+    drawBackdropHexes(cacheCtx, w, w.backdrop, bounds, zoom);
 
     // 2. Color-batched hex tiles pass, chunked to <=250 hexes per beginPath() so Skia tessellator stays <1ms
     const buckets = new Map();
@@ -216,7 +226,7 @@ export function createMapRenderer({ canvas, cam, app }) {
 
     // 3. Subtle hex grid lines (3 shared edges per hex, chunked <=350 to avoid Skia O(N log N) stroke slowdown)
     if (zoom >= 0.22 && landCells.length) {
-      cacheCtx.strokeStyle = activeLens ? 'rgba(10, 18, 28, 0.22)' : 'rgba(13, 25, 38, 0.20)';
+      cacheCtx.strokeStyle = activeLens ? 'rgba(10, 18, 28, 0.22)' : 'rgba(28, 34, 24, 0.19)';
       cacheCtx.lineWidth = Math.max(0.55, 0.9 / Math.max(0.25, zoom));
       const c5x = corners[5][0], c5y = corners[5][1];
       const c0x = corners[0][0], c0y = corners[0][1];
@@ -253,49 +263,45 @@ export function createMapRenderer({ canvas, cam, app }) {
       }
     }
 
+    const cityCoreSet = buildCityCoreSet(app.state.cities);
+
     // 4. Procedural terrain glyphs (batched in terrain.js)
     if (!activeLens) {
-      drawTerrainArt(cacheCtx, w, landCells, zoom, true);
+      drawTerrainArt(cacheCtx, w, landCells, zoom, true, cityCoreSet);
     }
 
-    // 5. Rivers, lakes & South China Sea dashed line (cached Path2D in water.js)
+    // 5. Exterior & interior rivers, lakes & South China Sea dashed line (cached Path2D)
+    drawBackdropWater(cacheCtx, w.backdrop, zoom);
     drawWaterFeatures(cacheCtx, w, zoom, bounds);
 
     // 6. Provincial border ribbons & national border (pre-indexed + viewport culled)
     drawBorders(cacheCtx, w, zoom, Boolean(activeLens), bounds);
 
-    // 7. City footprint hex accents (batched per province color)
-    if (Array.isArray(app.state.cities)) {
-      const cityBuckets = new Map();
-      for (const city of app.state.cities) {
-        const ci = city.cell;
-        if (ci == null || ci < 0 || ci >= w.N) continue;
-        const cx = cxArr[ci];
-        const cy = cyArr[ci];
-        if (cx < x0 - W || cx > x1 + W || cy < y0 - W || cy > y1 + W) continue;
-        const pCol = provinceColor(city.province_idx ?? 0);
-        let arr = cityBuckets.get(pCol);
-        if (!arr) {
-          arr = [];
-          cityBuckets.set(pCol, arr);
-        }
-        arr.push(ci);
-      }
-      for (const [pCol, arr] of cityBuckets) {
-        cacheCtx.fillStyle = rgba(pCol, 0.24);
-        cacheCtx.beginPath();
-        for (let k = 0; k < arr.length; k++) {
-          const ci = arr[k];
-          traceHexSubpath(cacheCtx, cxArr[ci], cyArr[ci], corners, 0.95);
-        }
-        cacheCtx.fill();
-      }
-    }
-
-    // 8. Static map art extension layers (roads, rail, hubs, military, wonders, trade)
+    // 7. Static map art extension layers: ground networks first (order <= 14: roads, rail)
     const orderedStatic = [...staticLayers].sort((a, b) => (a.order || 0) - (b.order || 0));
     const utils = { provinceColor, rgba, drawHexPath, bounds };
     for (const layer of orderedStatic) {
+      if ((layer.order || 0) > 14) continue;
+      const enabled =
+        typeof layer.enabled === 'function'
+          ? layer.enabled(app.state)
+          : app.state.layers[layer.id] !== false;
+      if (!enabled || typeof layer.draw !== 'function') continue;
+      try {
+        cacheCtx.save();
+        layer.draw(cacheCtx, w, app.state, app.data, zoom, utils);
+        cacheCtx.restore();
+      } catch (err) {
+        console.error(`[staticLayer:${layer.id}]`, err);
+      }
+    }
+
+    // 8. 3D Isometric City Skylines & urban blocks (layered cleanly above roads/rail entrance)
+    drawIsometricCities(cacheCtx, w, app.state, zoom, bounds, Boolean(activeLens));
+
+    // 9. Static map art extension layers: hubs, airlines, wonders, trade (order > 14)
+    for (const layer of orderedStatic) {
+      if ((layer.order || 0) <= 14) continue;
       const enabled =
         typeof layer.enabled === 'function'
           ? layer.enabled(app.state)

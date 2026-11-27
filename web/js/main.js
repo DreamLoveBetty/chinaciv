@@ -1,21 +1,22 @@
 // Application entry point: boots world, renderer, camera, UI panels, extensions & URL hash sync
 
-import { Camera } from './camera.js?v=20261127-5';
+import { Camera } from './camera.js?v=20261128-4';
 import { prepareWorld } from './world.js?v=20261127-5';
-import { createMapRenderer } from './render/map.js?v=20261127-5';
+import { prepareBackdrop } from './render/art/backdrop.js?v=20261128-4';
+import { createMapRenderer } from './render/map.js?v=20261128-4';
 import { isElevation25D, pickCell25D } from './render/art/elevation25d.js?v=20261127-5';
-import { createApp } from './app/api.js?v=20261127-7';
+import { createApp } from './app/api.js?v=20261128-4';
 import { initTopbar } from './ui/topbar.js?v=20261127-7';
 import { initSearch } from './ui/search.js';
-import { initLenses } from './ui/lenses.js?v=20261127-5';
-import { initTooltip, buildCellTooltipHtml } from './ui/tooltip.js?v=20261127-4';
+import { initLenses } from './ui/lenses.js?v=20261128-4';
+import { initTooltip, buildCellTooltipHtml } from './ui/tooltip.js?v=20261128-4';
 import { initYieldReport } from './ui/yieldReport.js';
 import { initPedia } from './ui/pedia.js?v=20261127-4';
 import { initHelp } from './ui/help.js';
 import { initMinimap } from './ui/minimap.js';
 import { renderQuickStatePanel } from './ui/statePanel.js';
 import { renderQuickCityPanel } from './ui/cityPanel.js';
-import { loadExtensions } from './ext/index.js?v=20261127-7';
+import { loadExtensions } from './ext/index.js?v=20261128-3';
 
 async function boot() {
   const canvas = document.getElementById('map-canvas');
@@ -31,6 +32,7 @@ async function boot() {
   let renderer = null;
   let minimap = null;
   let toastTimer = null;
+  let hasUserMovedCam = false;
   let canvasRect = canvas.getBoundingClientRect();
 
   const rendererProxy = {
@@ -76,6 +78,7 @@ async function boot() {
   // Wire UI Docks, Toast, and Quick Panels
   app.ui.setDock = (side, widthPx) => {
     const wNum = Math.max(0, Number(widthPx) || 0);
+    const wasAtMin = !hasUserMovedCam || cam.zoom <= cam.minZoom + 1e-4;
     if (!side || wNum === 0) {
       if (!side || side === 'left') {
         dockLeftEl.classList.add('hidden');
@@ -86,6 +89,10 @@ async function boot() {
         dockRightEl.classList.add('hidden');
         document.documentElement.style.setProperty('--dock-right', '0px');
         cam.setDocks(cam.dockLeft, 0);
+      }
+      if (app.w) {
+        app.syncMinZoom();
+        if (wasAtMin) app.fitChina({ instant: true });
       }
       renderer.requestDraw();
       minimap?.draw();
@@ -98,6 +105,10 @@ async function boot() {
     document.documentElement.style.setProperty(cssVar, `${wNum}px`);
     if (side === 'left') cam.setDocks(wNum, cam.dockRight);
     else cam.setDocks(cam.dockLeft, wNum);
+    if (app.w) {
+      app.syncMinZoom();
+      if (wasAtMin) app.fitChina({ instant: true });
+    }
     renderer.requestDraw();
     minimap?.draw();
     return target;
@@ -140,9 +151,14 @@ async function boot() {
 
   // Resize Handling (keeps cached canvasRect fresh with zero pointermove reflows)
   const updateSize = () => {
+    const wasAtMin = !hasUserMovedCam || cam.zoom <= cam.minZoom + 1e-4;
     const rect = viewportEl.getBoundingClientRect();
     cam.resize(rect.width, rect.height);
     canvasRect = canvas.getBoundingClientRect();
+    if (app.w) {
+      app.syncMinZoom();
+      if (wasAtMin) app.fitChina({ instant: true });
+    }
     renderer.invalidateStatic();
     renderer.requestDraw();
     minimap?.draw();
@@ -153,6 +169,11 @@ async function boot() {
   }, { passive: true });
   updateSize();
 
+  app.on('cam:fitChina', () => { hasUserMovedCam = false; });
+  app.on('select:city', () => { hasUserMovedCam = true; });
+  app.on('select:state', () => { hasUserMovedCam = true; });
+  document.getElementById('minimap-canvas')?.addEventListener('pointerdown', () => { hasUserMovedCam = true; });
+
   // Load Core Datasets
   const setProgress = (pct, msg) => {
     if (bootBar) bootBar.style.width = `${pct}%`;
@@ -161,17 +182,25 @@ async function boot() {
 
   try {
     setProgress(25, '正在加载中国25公里六边形世界网格…');
-    const [rawWorld, rawGeoLookup, rawNation, rawStates, rawCities] = await Promise.all([
+    const [rawWorld, rawGeoLookup, rawNation, rawStates, rawCities, , rawBackdrop] = await Promise.all([
       app.loadData('world'),
       app.loadData('geo_lookup').catch(() => null),
       app.loadData('nation').catch(() => null),
       app.loadData('states').catch(() => []),
       app.loadData('cities').catch(() => []),
       app.loadData('lenses').catch(() => []),
+      app.loadData('backdrop').catch(() => null),
     ]);
 
     setProgress(70, '正在构建中国省县空间索引与地形晕渲…');
     app.w = prepareWorld(rawWorld, rawGeoLookup);
+    if (rawBackdrop) {
+      app.w.backdrop = prepareBackdrop(rawBackdrop, app.w);
+      if (app.w.backdrop?.worldBounds) {
+        const wb = app.w.backdrop.worldBounds;
+        cam.setWorldBounds(wb.x0, wb.y0, wb.x1, wb.y1);
+      }
+    }
 
     if (Array.isArray(rawCities)) {
       for (const c of rawCities) {
@@ -302,6 +331,7 @@ async function boot() {
       const dy = e.clientY - lastPt.y;
       if (Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y) > 5) {
         didDrag = true;
+        hasUserMovedCam = true;
       }
       lastPt = { x: e.clientX, y: e.clientY };
       cam.panByScreen(dx, dy);
@@ -434,6 +464,7 @@ async function boot() {
     'wheel',
     (e) => {
       e.preventDefault();
+      hasUserMovedCam = true;
       const sx = e.clientX - canvasRect.left;
       const sy = e.clientY - canvasRect.top;
       const factor = Math.exp(-e.deltaY * 0.0014);
@@ -444,10 +475,12 @@ async function boot() {
 
   // Zoom Buttons
   document.getElementById('zoom-in')?.addEventListener('click', () => {
+    hasUserMovedCam = true;
     const c = cam.viewportCenterScreen();
     cam.zoomAtScreen(c.sx, c.sy, 1.38);
   });
   document.getElementById('zoom-out')?.addEventListener('click', () => {
+    hasUserMovedCam = true;
     const c = cam.viewportCenterScreen();
     cam.zoomAtScreen(c.sx, c.sy, 1 / 1.38);
   });

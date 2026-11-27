@@ -1,4 +1,4 @@
-// 2D World Camera with smooth animation, cursor-anchored zoom, interaction state & dock-aware framing
+// 2D World Camera with smooth animation, cursor-anchored zoom, bounded pan/zoom & dock-aware framing
 
 export class Camera {
   constructor(canvas, opts = {}) {
@@ -9,6 +9,7 @@ export class Camera {
     this.yScale = 1.0; // vertical foreshortening factor (1.0 in 2D, <1.0 in 2.5D relief)
     this.minZoom = opts.minZoom ?? 0.12;
     this.maxZoom = opts.maxZoom ?? 4.8;
+    this.worldBounds = null;
 
     this.width = 1280;
     this.height = 720;
@@ -25,12 +26,59 @@ export class Camera {
     this._onSettle = opts.onSettle || (() => {});
   }
 
+  setWorldBounds(x0, y0, x1, y1) {
+    this.worldBounds = { x0, y0, x1, y1 };
+    this._clampPosition();
+  }
+
+  setMinZoom(nextMin) {
+    const z = Math.max(0.05, Math.min(this.maxZoom, Number(nextMin) || 0.12));
+    this.minZoom = z;
+    if (this.zoom < z) {
+      this.zoom = z;
+    }
+    this._clampPosition();
+  }
+
+  _clampPosition() {
+    const wb = this.worldBounds;
+    if (!wb) return;
+    const c = this.viewportCenterScreen();
+    const scaleX = this.zoom;
+    const scaleY = this.zoom * (this.yScale || 1);
+
+    const leftNeed = c.sx / scaleX;
+    const rightNeed = (this.width - c.sx) / scaleX;
+    const wbW = wb.x1 - wb.x0;
+    if (leftNeed + rightNeed >= wbW) {
+      this.x = (wb.x0 + wb.x1) * 0.5 - (rightNeed - leftNeed) * 0.5;
+    } else {
+      const minX = wb.x0 + leftNeed;
+      const maxX = wb.x1 - rightNeed;
+      if (this.x < minX) this.x = minX;
+      else if (this.x > maxX) this.x = maxX;
+    }
+
+    const topNeed = c.sy / scaleY;
+    const botNeed = (this.height - c.sy) / scaleY;
+    const wbH = wb.y1 - wb.y0;
+    if (topNeed + botNeed >= wbH) {
+      this.y = (wb.y0 + wb.y1) * 0.5 - (botNeed - topNeed) * 0.5;
+    } else {
+      const minY = wb.y0 + topNeed;
+      const maxY = wb.y1 - botNeed;
+      if (this.y < minY) this.y = minY;
+      else if (this.y > maxY) this.y = maxY;
+    }
+  }
+
   resize(cssWidth, cssHeight) {
     this.width = Math.max(1, cssWidth);
     this.height = Math.max(1, cssHeight);
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.canvas.width = Math.round(this.width * this.dpr);
     this.canvas.height = Math.round(this.height * this.dpr);
+    this._clampPosition();
   }
 
   setDocks(leftPx, rightPx) {
@@ -71,6 +119,7 @@ export class Camera {
     if (Math.abs(clamped - this.yScale) < 1e-4) return false;
     this.yScale = clamped;
     this._anim = null;
+    this._clampPosition();
     this._onFrame();
     return true;
   }
@@ -102,6 +151,7 @@ export class Camera {
     this.isInteracting = true;
     this.x -= dx / this.zoom;
     this.y -= dy / (this.zoom * this.yScale);
+    this._clampPosition();
     this._onFrame();
     this._scheduleSettle(110, false);
   }
@@ -116,6 +166,7 @@ export class Camera {
     const c = this.viewportCenterScreen();
     this.x = before.x - (sx - c.sx) / this.zoom;
     this.y = before.y - (sy - c.sy) / (this.zoom * this.yScale);
+    this._clampPosition();
     this._onFrame();
     this._scheduleSettle(instant ? 0 : 140, true);
   }
@@ -132,6 +183,7 @@ export class Camera {
       this.x = targetX;
       this.y = targetY;
       this.zoom = clampedZoom;
+      this._clampPosition();
       this._onFrame();
       this._onSettle({ zoomed });
       return;
@@ -164,6 +216,7 @@ export class Camera {
       this.y = startY + (targetY - startY) * ease;
       // Log interpolation of zoom feels natural
       this.zoom = startZ * Math.pow(clampedZoom / startZ, ease);
+      this._clampPosition();
       this._onFrame();
       if (u < 1) {
         requestAnimationFrame(tick);

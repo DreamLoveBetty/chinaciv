@@ -1,6 +1,6 @@
 // Bottom Lens Dock: Resource toggle, quick lens pills, 19-lens grouped picker, clickable legend bands
 
-import { buildLensColorizer, COVER_META } from '../terrain.js?v=20261127-4';
+import { buildLensColorizer, COVER_META } from '../terrain.js?v=20261128-4';
 import { escHtml, fmtCompact } from '../format.js';
 import { ICONS } from '../icons.js?v=20261127-4';
 

@@ -1,10 +1,10 @@
 // Assembles the frozen window.__app / extension API object
 
 import { createEventBus, createInitialState } from './state.js?v=20261127-7';
-import { createDataLoader } from './data.js?v=20261127-4';
+import { createDataLoader } from './data.js?v=20261128-4';
 import { createModeManager } from './modes.js';
 import { createHashManager } from './hash.js';
-import { createActions } from './actions.js?v=20261127-5';
+import { createActions } from './actions.js?v=20261128-4';
 
 export function createApp({ cam, renderer }) {
   const bus = createEventBus();

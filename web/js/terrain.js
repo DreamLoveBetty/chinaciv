@@ -4,16 +4,16 @@ import { hexToRgb, shadeRgb, sampleRamp, RAMPS, BAND_RAMPS, lerpRgb } from './co
 
 // Cover IDs 0..9 matching data-geo frozen contract
 export const COVER_META = [
-  { id: 0, key: 'water', name: '海洋/水域', color: '#133a5e' },
-  { id: 1, key: 'snow', name: '冰雪/冰川', color: '#d8e4ec' },
-  { id: 2, key: 'alpine', name: '高山荒漠/冻原', color: '#8d877a' },
-  { id: 3, key: 'forest', name: '森林', color: '#2f613b' },
-  { id: 4, key: 'desert', name: '荒漠/戈壁灌丛', color: '#b69764' },
-  { id: 5, key: 'grass', name: '草原/高寒草甸', color: '#708d4b' },
-  { id: 6, key: 'pasture', name: '稀树牧场', color: '#859b57' },
-  { id: 7, key: 'crop', name: '农田耕地', color: '#84a14c' },
-  { id: 8, key: 'wetland', name: '湿地沼泽', color: '#42766b' },
-  { id: 9, key: 'urban', name: '城市建成区', color: '#b8764a' },
+  { id: 0, key: 'water', name: '海洋/水域', color: '#143d63' },
+  { id: 1, key: 'snow', name: '冰雪/冰川', color: '#dce7f0' },
+  { id: 2, key: 'alpine', name: '高山荒漠/冻原', color: '#949c96' },
+  { id: 3, key: 'forest', name: '森林', color: '#48734d' },
+  { id: 4, key: 'desert', name: '荒漠/戈壁灌丛', color: '#c6b283' },
+  { id: 5, key: 'grass', name: '草原/高寒草甸', color: '#87a25f' },
+  { id: 6, key: 'pasture', name: '稀树牧场', color: '#9eb26f' },
+  { id: 7, key: 'crop', name: '农田耕地', color: '#9cb25e' },
+  { id: 8, key: 'wetland', name: '湿地沼泽', color: '#4a8579' },
+  { id: 9, key: 'urban', name: '城市建成区', color: '#9da394' },
 ];
 
 const COVER_RGB = COVER_META.map((c) => hexToRgb(c.color));
@@ -30,7 +30,7 @@ function rgbQuantHex(r, g, b) {
 }
 
 const OCEAN_SHALLOW_HEX = '#17456e';
-const FOREIGN_SHADES = [0.84, 0.92, 1.0, 1.08].map((f) => {
+export const FOREIGN_SHADES = [0.84, 0.92, 1.0, 1.08].map((f) => {
   const c = shadeRgb(FOREIGN_BASE_RGB, f);
   return rgbQuantHex(c[0], c[1], c[2]);
 });
@@ -84,10 +84,10 @@ export function terrainHexColor(w, i) {
   }
 
   if (elev > 3200 && cover !== 1) {
-    const t = Math.min(0.35, (elev - 3200) / 5500);
-    rgb = lerpRgb(rgb, [196, 190, 174], t);
+    const t = Math.min(0.32, (elev - 3200) / 5600);
+    rgb = lerpRgb(rgb, [196, 194, 182], t);
   } else if (elev < 60 && cover === 7) {
-    rgb = lerpRgb(rgb, [120, 160, 74], 0.22);
+    rgb = lerpRgb(rgb, [146, 178, 92], 0.2);
   }
 
   return shadeRgb(rgb, shade);

@@ -3,10 +3,27 @@
 import { TILT_25D, isElevation25D, elevLiftKm } from '../render/art/elevation25d.js?v=20261127-5';
 
 export function createActions(app, renderer) {
+  function computeChinaFitZoom(pad = 28) {
+    if (!app.w || !app.cam) return 0.12;
+    const b = app.w.chinaBounds;
+    const avail = app.cam.availableSize();
+    const bw = Math.max(40, b.x1 - b.x0);
+    const bh = Math.max(40, (b.y1 - b.y0) * (app.cam.yScale || 1));
+    const zx = Math.max(0.05, (avail.w - pad * 2) / bw);
+    const zy = Math.max(0.05, (avail.h - pad * 2) / bh);
+    return Math.min(zx, zy);
+  }
+
+  function syncMinZoom() {
+    if (!app.w || !app.cam) return;
+    app.cam.setMinZoom(computeChinaFitZoom(28));
+  }
+
   function syncCameraTilt() {
     if (typeof app.cam?.setYScale === 'function') {
       app.cam.setYScale(isElevation25D(app.state) ? TILT_25D : 1.0);
     }
+    syncMinZoom();
   }
 
   function findLens(lensOrId) {
@@ -148,13 +165,17 @@ export function createActions(app, renderer) {
       const lift = isElevation25D(app.state) && anchorCell >= 0 && app.w.elev ? elevLiftKm(app.w.elev[anchorCell]) : 0;
       app.cam.fitBounds(sb.x0, sb.y0 - lift, sb.x1, sb.y1 - lift * 0.25, { padding: 48, maxZoom: 1.4, ...opts });
     },
+    computeChinaFitZoom,
+    syncMinZoom,
     fitBounds(x0, y0, x1, y1, opts = {}) {
       app.cam.fitBounds(x0, y0, x1, y1, opts);
     },
     fitChina(opts = {}) {
       if (!app.w) return;
+      syncMinZoom();
       const b = app.w.chinaBounds;
       app.cam.fitBounds(b.x0, b.y0, b.x1, b.y1, { padding: 28, ...opts });
+      app.emit('cam:fitChina', opts);
     },
     selectCity(cityOrId, opts = {}) {
       const city = resolveCity(cityOrId);

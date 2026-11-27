@@ -1,12 +1,12 @@
 // Registers all 6 static map art layers + animated transport flow overlay, bound to the Topbar "图层" menu
 
-import { createRoadsLayer } from './roads.js';
-import { createRailLayer } from './rail.js?v=20261127-7';
-import { createHubsLayer } from './hubs.js';
+import { createRoadsLayer } from './roads.js?v=20261128-1';
+import { createRailLayer } from './rail.js?v=20261128-1';
+import { createHubsLayer } from './hubs.js?v=20261128-1';
 import { createAirlinesLayer } from './airlines.js?v=20261127-7';
-import { createWondersLayer } from './wonders.js';
+import { createWondersLayer } from './wonders.js?v=20261128-3';
 import { createTradeLayer } from './trade.js?v=20261127-7';
-import { installFlowOverlay } from './flowOverlay.js?v=20261127-7';
+import { installFlowOverlay } from './flowOverlay.js?v=20261128-1';
 
 export function install(app) {
   app.ui.addMapToggle({

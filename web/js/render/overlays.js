@@ -2,7 +2,7 @@
 
 import { EDGE_CORNERS } from '../world.js?v=20261127-5';
 import { provinceColor, rgba } from '../color.js';
-import { drawCityBanners } from './banners.js?v=20261127-5';
+import { drawCityBanners } from './banners.js?v=20261128-3';
 import { drawIsohyet400Labels } from './art/climate.js?v=20261127-4';
 import { isElevation25D, elevLiftKm } from './art/elevation25d.js?v=20261127-5';
 
