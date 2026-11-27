@@ -1,6 +1,6 @@
 // Terrain cover definitions, elevation hillshade, and cached 19-lens choropleth coloring
 
-import { hexToRgb, shadeRgb, sampleRamp, RAMPS, lerpRgb } from './color.js';
+import { hexToRgb, shadeRgb, sampleRamp, RAMPS, BAND_RAMPS, lerpRgb } from './color.js?v=20261127-4';
 
 // Cover IDs 0..9 matching data-geo frozen contract
 export const COVER_META = [
@@ -142,6 +142,8 @@ const ALIASES = {
   faith_tradition: 'faith_tradition',
   wellbeing: 'wellbeing',
   disasters: 'disasters',
+  precip: 'precip_mm',
+  elevation: 'elevation_m',
 };
 
 /**
@@ -149,6 +151,10 @@ const ALIASES = {
  */
 export function getLensCellValue(w, data, lens, i) {
   if (!lens || w.owner[i] < 0) return null;
+
+  if (lens.cellField && w[lens.cellField]) {
+    return w[lens.cellField][i];
+  }
 
   const countyIdx = w.county ? w.county[i] : -1;
   const countyRow = countyIdx >= 0 && data.counties?.rows ? data.counties.rows[countyIdx] : null;
@@ -288,18 +294,24 @@ export function buildLensColorizer(w, data, lens) {
       }
     }
 
-    const nBands = Math.max(4, Math.min(7, breaks.length - 1));
+    const bandPairs = lens.scale === 'breaks' && Array.isArray(BAND_RAMPS[lens.ramp]) ? BAND_RAMPS[lens.ramp] : null;
+    const nBands = bandPairs
+      ? Math.min(bandPairs.length, breaks.length - 1)
+      : Math.max(4, Math.min(7, breaks.length - 1));
     const bands = [];
     for (let b = 0; b < nBands; b++) {
       const t = nBands === 1 ? 0.5 : b / (nBands - 1);
-      const rgb = sampleRamp(ramp, t);
+      const rgb = bandPairs ? lerpRgb(bandPairs[b][0], bandPairs[b][1], 0.5) : sampleRamp(ramp, t);
       const lo = breaks[b];
       const hi = breaks[b + 1] ?? breaks[breaks.length - 1];
+      const lbl = Array.isArray(lens.bandLabels) ? lens.bandLabels[b] : undefined;
       bands.push({
         index: b,
         min: lo,
         max: hi,
         isLast: b === nBands - 1,
+        label: lbl,
+        fullLabel: lbl ? `${lbl}${lens.unit ? ' ' + lens.unit : ''}` : undefined,
         rgb,
         color: `rgb(${Math.round(rgb[0])},${Math.round(rgb[1])},${Math.round(rgb[2])})`,
       });
@@ -313,6 +325,9 @@ export function buildLensColorizer(w, data, lens) {
 
     const valArr = new Float32Array(N).fill(NaN);
     const colorHexArr = new Array(N);
+    const shadeMax = lens.id === 'elevation' ? 0.15 : lens.id === 'precip' ? 0.08 : 0.1;
+    const slopeDiv = lens.id === 'elevation' ? 650 : 800;
+
     for (let i = 0; i < N; i++) {
       if (w.owner[i] < 0) {
         colorHexArr[i] = terrainHex[i];
@@ -324,19 +339,34 @@ export function buildLensColorizer(w, data, lens) {
         continue;
       }
       valArr[i] = v;
-      let t;
-      if (useLog) {
-        const lv = Math.log1p(Math.max(0, v));
-        t = l1 > l0 ? (lv - l0) / (l1 - l0) : 0.5;
+      let rgb;
+      if (bandPairs) {
+        let bi = nBands - 1;
+        for (let b = 0; b < nBands - 1; b++) {
+          if (v < breaks[b + 1]) {
+            bi = b;
+            break;
+          }
+        }
+        const lo = breaks[bi];
+        const hi = breaks[bi + 1] ?? breaks[breaks.length - 1];
+        const f = hi > lo ? Math.max(0, Math.min(1, (v - lo) / (hi - lo))) : 0.5;
+        rgb = lerpRgb(bandPairs[bi][0], bandPairs[bi][1], f);
       } else {
-        t = maxV > minV ? (v - minV) / (maxV - minV) : 0.5;
+        let t;
+        if (useLog) {
+          const lv = Math.log1p(Math.max(0, v));
+          t = l1 > l0 ? (lv - l0) / (l1 - l0) : 0.5;
+        } else {
+          t = maxV > minV ? (v - minV) / (maxV - minV) : 0.5;
+        }
+        rgb = sampleRamp(ramp, Math.max(0, Math.min(1, t)));
       }
-      let rgb = sampleRamp(ramp, Math.max(0, Math.min(1, t)));
       if (w.nwNeighbor) {
         const nw = w.nwNeighbor[i];
         const elev = w.elev ? w.elev[i] : 0;
         const nwElev = nw >= 0 ? w.elev[nw] : elev;
-        const s = 1 + Math.max(-0.1, Math.min(0.1, ((elev - nwElev) / 800) * 0.1));
+        const s = 1 + Math.max(-shadeMax, Math.min(shadeMax, ((elev - nwElev) / slopeDiv) * shadeMax));
         rgb = shadeRgb(rgb, s);
       }
       colorHexArr[i] = rgbQuantHex(rgb[0], rgb[1], rgb[2]);

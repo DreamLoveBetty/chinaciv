@@ -1,8 +1,8 @@
 // Bottom Lens Dock: Resource toggle, quick lens pills, 19-lens grouped picker, clickable legend bands
 
-import { buildLensColorizer, COVER_META } from '../terrain.js';
+import { buildLensColorizer, COVER_META } from '../terrain.js?v=20261127-4';
 import { escHtml, fmtCompact } from '../format.js';
-import { ICONS } from '../icons.js';
+import { ICONS } from '../icons.js?v=20261127-4';
 
 const QUICK_LENS_IDS = ['density', 'income', 'bachelors', 'stem', 'forest'];
 
@@ -55,12 +55,21 @@ export function initLenses(app) {
     } else if (app.w) {
       const colorizer = buildLensColorizer(app.w, app.data, activeLens);
       const bands = colorizer?.bands || [];
+      const isIso400 = activeLens.id === 'precip';
       legendHtml = `
         <div class="lens-legend">
           <div class="legend-meta">
             <span class="legend-name">${escHtml(activeLens.label || activeLens.name)}</span>
             <span class="legend-unit">${escHtml(activeLens.unit || '点击色块筛选区间')}</span>
           </div>
+          ${
+            isIso400
+              ? `<span class="legend-isohyet-tag" title="WorldClim v2.1 实测400毫米等降水量线（大兴安岭—张家口—兰州—拉萨）">
+                   <span class="legend-isohyet-swatch"></span>
+                   <span>400mm线</span>
+                 </span>`
+              : ''
+          }
           <div class="legend-bands">
             ${bands
               .map((b) => {
@@ -97,11 +106,11 @@ export function initLenses(app) {
 
         <div class="lens-picker-wrap">
           <button id="lens-more-btn" class="lens-pill" type="button">
-            🧭 ${lenses.length || 19}种视角 ▾
+            🧭 ${lenses.length || 21}种视角 ▾
           </button>
           <div id="lens-picker-pop" class="lens-picker-pop ${pickerOpen ? '' : 'hidden'}">
             <div class="lp-header">
-              <span class="lp-title">全部专题地图视角（7大类 · ${lenses.length || 19}种）</span>
+              <span class="lp-title">全部专题地图视角（${groups.length || 7}大类 · ${lenses.length || 21}种）</span>
               <button id="lens-pop-close" class="qp-close" type="button">✕</button>
             </div>
             <div class="lp-groups">
@@ -142,7 +151,8 @@ export function initLenses(app) {
       btn.addEventListener('click', async () => {
         const lid = btn.dataset.lensId;
         pickerOpen = false;
-        if (lid !== 'terrain' && !app.data.counties) {
+        const picked = lenses.find((x) => x.id === lid);
+        if (lid !== 'terrain' && !picked?.cellField && !app.data.counties) {
           await app.loadData('counties').catch(() => {});
         }
         app.setLens(lid === 'terrain' ? null : lid);

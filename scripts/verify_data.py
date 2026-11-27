@@ -99,6 +99,8 @@ REQUIRED_COUNTY_FIELDS = [
     "wellbeing",
     "disasters",
     "stem_pct",
+    "precip_mm",
+    "elevation_m",
 ]
 
 REQUIRED_LENS_IDS = [
@@ -121,6 +123,8 @@ REQUIRED_LENS_IDS = [
     "wellbeing",
     "disasters",
     "stem",
+    "precip",
+    "elevation",
 ]
 
 REQUIRED_LENS_GROUPS = {
@@ -466,6 +470,48 @@ def audit_geo(rep: AuditReport, data: dict[str, Any]) -> tuple[int, dict[int, li
     else:
         rep.fail("@data-geo", f"world.pct missing required channels: {set(pct_keys) - set(pct.keys() if isinstance(pct, dict) else [])}")
 
+    # Annual precipitation & 400mm isohyet checks
+    precip = world.get("precip", [])
+    if isinstance(precip, list) and len(precip) == total_cells and len(owner) == total_cells:
+        bad_china_p = [i for i in range(total_cells) if owner[i] >= 0 and (not isinstance(precip[i], (int, float)) or precip[i] <= 0)]
+        rep.check(
+            len(bad_china_p) == 0,
+            "@data-geo",
+            "world.precip valid (>0 mm) across all China land hexes",
+            f"{len(bad_china_p)} China hexes have invalid/zero precip",
+        )
+        se_vals = [precip[i] for i in range(total_cells) if owner[i] in (12, 18, 31)]  # Fujian, Guangdong, Taiwan
+        xj_vals = [precip[i] for i in range(total_cells) if owner[i] == 30]  # Xinjiang
+        se_mean = sum(se_vals) / len(se_vals) if se_vals else 0
+        xj_mean = sum(xj_vals) / len(xj_vals) if xj_vals else 9999
+        rep.check(
+            se_mean > 1300,
+            "@data-geo",
+            f"SE coastal (FJ/GD/TW) mean precip = {se_mean:.1f} mm (>1300 mm)",
+            f"SE coastal mean precip too low: {se_mean:.1f} mm",
+        )
+        rep.check(
+            xj_mean < 260,
+            "@data-geo",
+            f"Xinjiang mean precip = {xj_mean:.1f} mm (<260 mm)",
+            f"Xinjiang mean precip too high: {xj_mean:.1f} mm",
+        )
+    else:
+        rep.fail("@data-geo", "world.precip missing or wrong length")
+
+    iso = world.get("isohyet_400", {})
+    iso_lines = iso.get("lines", []) if isinstance(iso, dict) else []
+    iso_len = 0.0
+    for pl in iso_lines:
+        for a, b in zip(pl, pl[1:]):
+            iso_len += math.hypot(b[0] - a[0], b[1] - a[1])
+    rep.check(
+        isinstance(iso_lines, list) and len(iso_lines) >= 1 and iso_len > 2000.0,
+        "@data-geo",
+        f"world.isohyet_400 has {len(iso_lines)} line(s), total length = {iso_len:.1f} km (>2000 km)",
+        f"world.isohyet_400 missing or too short: lines={len(iso_lines)}, len={iso_len:.1f} km",
+    )
+
     return total_cells, lookup_county_cells
 
 
@@ -690,7 +736,7 @@ def audit_stats(rep: AuditReport, data: dict[str, Any], total_cells: int) -> Non
             rep.check(
                 len(bad_cols) == 0,
                 "@data-stats",
-                "All 1,302 county rows have non-missing values across all 28 required columns",
+                f"All 1,302 county rows have non-missing values across all {len(REQUIRED_COUNTY_FIELDS)} required columns",
                 f"counties.rows has missing/empty values: {bad_cols}",
             )
             world_counties = data.get("world.json", {}).get("counties", [])
@@ -712,10 +758,10 @@ def audit_stats(rep: AuditReport, data: dict[str, Any], total_cells: int) -> Non
     lenses = data.get("lenses.json")
     lens_list = lenses.get("lenses", []) if isinstance(lenses, dict) else lenses
     rep.check(
-        isinstance(lens_list, list) and len(lens_list) == 19,
+        isinstance(lens_list, list) and len(lens_list) >= 21,
         "@data-stats",
-        "lenses.json exact length == 19",
-        f"lenses.json expected 19 lenses, got {len(lens_list) if isinstance(lens_list, list) else type(lens_list)}",
+        f"lenses.json count == {len(lens_list) if isinstance(lens_list, list) else 0} (>=21)",
+        f"lenses.json expected >=21 lenses, got {len(lens_list) if isinstance(lens_list, list) else type(lens_list)}",
     )
     if isinstance(lens_list, list):
         got_ids = [l.get("id") for l in lens_list if isinstance(l, dict)]
@@ -723,7 +769,7 @@ def audit_stats(rep: AuditReport, data: dict[str, Any], total_cells: int) -> Non
         rep.check(
             len(missing_lenses) == 0,
             "@data-stats",
-            "All 19 required lens IDs present",
+            f"All {len(REQUIRED_LENS_IDS)} required lens IDs present",
             f"lenses.json missing lens IDs: {missing_lenses}",
         )
         got_groups = {l.get("group") for l in lens_list if isinstance(l, dict)}

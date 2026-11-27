@@ -8,6 +8,28 @@ import { createWondersLayer } from './wonders.js';
 import { createTradeLayer } from './trade.js';
 
 export function install(app) {
+  app.ui.addMapToggle({
+    id: 'precip',
+    group: 'thematic',
+    label: '年降水量（含400mm线）',
+    icon: 'precip',
+    title: '基于 WorldClim v2.1 实测年均降水量分布，醒目显示400毫米等降水量线',
+    default: false,
+    get: () => app.state.lens?.id === 'precip',
+    set: (on) => app.setLens(on ? 'precip' : null),
+  });
+
+  app.ui.addMapToggle({
+    id: 'elevation',
+    group: 'thematic',
+    label: '海拔高度（三级阶梯）',
+    icon: 'elevation',
+    title: '基于 AWS Terrarium DEM 实测平均海拔，分层设色呈现中国地势三大阶梯',
+    default: false,
+    get: () => app.state.lens?.id === 'elevation',
+    set: (on) => app.setLens(on ? 'elevation' : null),
+  });
+
   const specs = [
     {
       id: 'rail',

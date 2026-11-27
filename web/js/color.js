@@ -94,4 +94,27 @@ export const RAMPS = {
   ice: ['#1b2333', '#2d4766', '#42739e', '#65a2c9', '#99cce3', '#ddf2fa'].map(hexToRgb),
   purple: ['#1e1e30', '#442b57', '#713c7d', '#a25799', '#cf84af', '#f3c3d5'].map(hexToRgb),
   diverging: ['#2f6b9e', '#5ca0c9', '#b8d7df', '#ebe1c2', '#e0a26b', '#c45443'].map(hexToRgb),
+  precip: ['#9a5f2c', '#e4cf8b', '#78c9a8', '#379ec9', '#1f5ea6', '#332375'].map(hexToRgb),
+  elevation: ['#1f6a49', '#65a254', '#cec45c', '#d48d42', '#a84f34', '#875866', '#eef4fa'].map(hexToRgb),
+};
+
+// Piecewise per-band [startRgb, endRgb] ramps for sharp meteorological & hypsometric breakpoints
+export const BAND_RAMPS = {
+  precip: [
+    ['#9a5f2c', '#c48d47'], // <200 mm arid ochre
+    ['#cb9c55', '#e4cf8b'], // 200-400 mm semi-arid warm sand
+    ['#78c9a8', '#46b5a8'], // 400-800 mm semi-humid mint-teal
+    ['#379ec9', '#2579b5'], // 800-1200 mm humid cerulean
+    ['#1f5ea6', '#1a4291'], // 1200-1600 mm abundant cobalt
+    ['#1d3280', '#332375'], // >1600 mm monsoon indigo
+  ].map(([a, b]) => [hexToRgb(a), hexToRgb(b)]),
+  elevation: [
+    ['#1f6a49', '#348554'], // <100 m alluvial plain
+    ['#469454', '#84b054'], // 100-500 m low hills
+    ['#99b856', '#cec45c'], // 500-1000 m upland transition
+    ['#d8b252', '#d48d42'], // 1000-2000 m Step 2 plateau
+    ['#c8743a', '#a84f34'], // 2000-3500 m Step 2->1 escarpment
+    ['#964a46', '#875866'], // 3500-4500 m Tibetan plateau
+    ['#a998a4', '#eef4fa'], // >4500 m high peaks & snow
+  ].map(([a, b]) => [hexToRgb(a), hexToRgb(b)]),
 };

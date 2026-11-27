@@ -60,6 +60,7 @@ export function prepareWorld(raw, geoLookup = null) {
   const relief = toTypedUint8(raw.relief, N, 0);
   const elev = toTypedFloat32(raw.elev, N, 0);
   const elev_max = toTypedFloat32(raw.elev_max, N, 0);
+  const precip = toTypedFloat32(raw.precip, N, 0);
 
   // Determine pct scale (0..1 vs 0..100)
   let pctScale = 1;
@@ -272,6 +273,8 @@ export function prepareWorld(raw, geoLookup = null) {
     relief,
     elev,
     elev_max,
+    precip,
+    isohyet_400: raw.isohyet_400 || null,
     pctScale,
     cxArr,
     cyArr,

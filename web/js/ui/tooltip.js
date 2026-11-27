@@ -1,6 +1,6 @@
 // Floating map hover tooltip with O(1) cell lookup & zero-reflow transform positioning
 
-import { COVER_META, getLensCellValue } from '../terrain.js';
+import { COVER_META, getLensCellValue } from '../terrain.js?v=20261127-4';
 import { escHtml, fmtField, fmtNum } from '../format.js';
 import { RESOURCE_STYLES } from '../render/art/resources.js';
 
@@ -61,8 +61,32 @@ export function buildCellTooltipHtml(app, cellIdx) {
   if (app.state.lens) {
     const lens = app.state.lens;
     const val = getLensCellValue(w, app.data, lens, cellIdx);
-    const fieldSpec = app.data.counties?.fields?.find((f) => f.key === (lens.countyField || lens.field || lens.id)) || lens;
-    html += `<div class="tt-row"><span class="tt-k">${escHtml(lens.label || lens.name)}</span><span class="tt-v">${escHtml(fmtField(val, fieldSpec))}</span></div>`;
+    if (lens.id === 'precip') {
+      const pVal = typeof val === 'number' && Number.isFinite(val) ? Math.round(val) : 0;
+      const [zoneTxt, zoneCol] =
+        pVal < 200
+          ? ['干旱区 (<200mm)', '#e4a85a']
+          : pVal < 400
+            ? ['半干旱区 (200–400mm)', '#e4cf8b']
+            : pVal < 800
+              ? ['半湿润区 (400–800mm)', '#6cd4b8']
+              : ['湿润区 (>800mm)', '#5eb8f0'];
+      html += `<div class="tt-row"><span class="tt-k">年降水量</span><span class="tt-v">${fmtNum(pVal, 0)} mm/年</span></div>`;
+      html += `<div class="tt-row"><span class="tt-k">干湿分区</span><span class="tt-v" style="color:${zoneCol}">${zoneTxt}</span></div>`;
+    } else if (lens.id === 'elevation') {
+      const eMax = Math.round(w.elev_max?.[cellIdx] ?? elev);
+      const [stepTxt, stepCol] =
+        elev >= 3500
+          ? ['第一级阶梯 (青藏高原)', '#e2b8c4']
+          : elev >= 500
+            ? ['第二级阶梯 (高原盆地)', '#e2ad63']
+            : ['第三级阶梯 (平原丘陵)', '#7cc98a'];
+      html += `<div class="tt-row"><span class="tt-k">最高海拔</span><span class="tt-v">${fmtNum(eMax, 0)} m</span></div>`;
+      html += `<div class="tt-row"><span class="tt-k">地势阶梯</span><span class="tt-v" style="color:${stepCol}">${stepTxt}</span></div>`;
+    } else {
+      const fieldSpec = app.data.counties?.fields?.find((f) => f.key === (lens.countyField || lens.field || lens.id)) || lens;
+      html += `<div class="tt-row"><span class="tt-k">${escHtml(lens.label || lens.name)}</span><span class="tt-v">${escHtml(fmtField(val, fieldSpec))}</span></div>`;
+    }
   } else if (county?.population != null) {
     html += `<div class="tt-row"><span class="tt-k">县域人口</span><span class="tt-v">${escHtml(fmtField(county.population, { format: 'pop' }))}</span></div>`;
   }

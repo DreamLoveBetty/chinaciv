@@ -1,15 +1,15 @@
 // Data loading, caching, and defensive schema normalization
 
 const DATA_FILES = {
-  world: 'data/world.json',
+  world: 'data/world.json?v=20261127-4',
   geo_lookup: 'data/geo_lookup.json',
   nation: 'data/nation.json',
   states: 'data/states.json',
   cities: 'data/cities.json',
-  counties: 'data/counties.json',
+  counties: 'data/counties.json?v=20261127-4',
   districts: 'data/districts.json',
-  lenses: 'data/lenses.json',
-  sources: 'data/sources.json',
+  lenses: 'data/lenses.json?v=20261127-4',
+  sources: 'data/sources.json?v=20261127-4',
   resources: 'data/resources.json',
   infrastructure: 'data/infrastructure.json',
   military: 'data/military.json',

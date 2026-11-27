@@ -6,7 +6,7 @@ const PEDIA_TABS = [
   { id: 'yields', label: '五大产出体系' },
   { id: 'districts', label: '城区与市民规则' },
   { id: 'wonders', label: '奇观遴选标准' },
-  { id: 'lenses', label: '19种地图视角' },
+  { id: 'lenses', label: '专题地图视角' },
   { id: 'sources', label: '权威数据源' },
 ];
 

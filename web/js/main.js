@@ -1,20 +1,20 @@
 // Application entry point: boots world, renderer, camera, UI panels, extensions & URL hash sync
 
 import { Camera } from './camera.js';
-import { prepareWorld } from './world.js';
-import { createMapRenderer } from './render/map.js?v=20261127-2';
-import { createApp } from './app/api.js';
-import { initTopbar } from './ui/topbar.js';
+import { prepareWorld } from './world.js?v=20261127-4';
+import { createMapRenderer } from './render/map.js?v=20261127-4';
+import { createApp } from './app/api.js?v=20261127-4';
+import { initTopbar } from './ui/topbar.js?v=20261127-4';
 import { initSearch } from './ui/search.js';
-import { initLenses } from './ui/lenses.js';
-import { initTooltip, buildCellTooltipHtml } from './ui/tooltip.js';
+import { initLenses } from './ui/lenses.js?v=20261127-4';
+import { initTooltip, buildCellTooltipHtml } from './ui/tooltip.js?v=20261127-4';
 import { initYieldReport } from './ui/yieldReport.js';
-import { initPedia } from './ui/pedia.js';
+import { initPedia } from './ui/pedia.js?v=20261127-4';
 import { initHelp } from './ui/help.js';
 import { initMinimap } from './ui/minimap.js';
 import { renderQuickStatePanel } from './ui/statePanel.js';
 import { renderQuickCityPanel } from './ui/cityPanel.js';
-import { loadExtensions } from './ext/index.js';
+import { loadExtensions } from './ext/index.js?v=20261127-4';
 
 async function boot() {
   const canvas = document.getElementById('map-canvas');

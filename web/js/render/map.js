@@ -1,13 +1,14 @@
 // Offscreen-cached 60fps Canvas 2D hex map renderer with zoom scale-blit & color-batched tile baking
 
 import { rgbToHex, rgba, provinceColor } from '../color.js';
-import { getTerrainColorHexArr, buildLensColorizer } from '../terrain.js';
+import { getTerrainColorHexArr, buildLensColorizer } from '../terrain.js?v=20261127-4';
 import { drawTerrainArt } from './art/terrain.js';
 import { drawWaterFeatures } from './art/water.js';
 import { drawBorders } from './art/borders.js';
 import { drawResources } from './art/resources.js';
+import { drawIsohyet400 } from './art/climate.js?v=20261127-4';
 import { drawProvinceLabels } from './art/labels.js?v=20261127-2';
-import { drawOverlay } from './overlays.js?v=20261127-2';
+import { drawOverlay } from './overlays.js?v=20261127-4';
 
 export function createMapRenderer({ canvas, cam, app }) {
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -260,6 +261,11 @@ export function createMapRenderer({ canvas, cam, app }) {
 
     // 9. Strategic resources
     drawResources(cacheCtx, w, app.data, app.state, zoom, bounds);
+
+    // 9.2. 400mm Continental Isohyet Divider (when Precipitation layer is active)
+    if (activeLens?.id === 'precip') {
+      drawIsohyet400(cacheCtx, w, zoom);
+    }
 
     // 9.5 Subtle dimming veil over unselected provinces when a province is selected in map mode
     if (dimExceptState >= 0 && unselectedLandCells.length) {

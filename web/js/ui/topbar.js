@@ -1,6 +1,6 @@
 // Topbar: Brand reset, 5 National Yield pills, Extension slots, Layers menu, Share popover, Pedia, Help
 
-import { ICONS, hydrateIcons } from '../icons.js';
+import { ICONS, hydrateIcons } from '../icons.js?v=20261127-4';
 import { escHtml } from '../format.js';
 import { fmtYieldPill } from './yieldReport.js';
 
@@ -54,22 +54,42 @@ export function initTopbar(app) {
     });
   }
 
+  function syncLayersBtn() {
+    const lid = app.state.lens?.id;
+    const isThematic = lid === 'precip' || lid === 'elevation';
+    layersBtn?.classList.toggle('active', isThematic);
+  }
+
+  function renderToggleRows(items) {
+    return items
+      .map((t) => {
+        const on = Boolean(t.get());
+        const isThematic = t.group === 'thematic';
+        return `
+          <div class="menu-toggle-item ${on ? 'on' : ''} ${isThematic ? 'thematic' : ''}" data-tid="${escHtml(t.id)}" title="${escHtml(t.title || '')}" role="menuitemcheckbox" aria-checked="${on}">
+            <span class="menu-toggle-left">
+              <span class="btn-ico">${ICONS[t.icon] || ''}</span>
+              <span>${escHtml(t.label)}</span>
+            </span>
+            <span class="menu-check ${isThematic ? 'radio' : ''}">${on ? (isThematic ? '●' : '✓') : ''}</span>
+          </div>`;
+      })
+      .join('');
+  }
+
   function renderLayersMenu() {
+    const thematic = mapToggles.filter((t) => t.group === 'thematic');
+    const overlays = mapToggles.filter((t) => t.group !== 'thematic');
+
     layersMenu.innerHTML = `
-      <div class="menu-head">地图战略图层开关</div>
-      ${mapToggles
-        .map((t) => {
-          const on = Boolean(t.get());
-          return `
-            <div class="menu-toggle-item ${on ? 'on' : ''}" data-tid="${escHtml(t.id)}" title="${escHtml(t.title || '')}" role="menuitemcheckbox" aria-checked="${on}">
-              <span class="menu-toggle-left">
-                <span class="btn-ico">${ICONS[t.icon] || ''}</span>
-                <span>${escHtml(t.label)}</span>
-              </span>
-              <span class="menu-check">${on ? '✓' : ''}</span>
-            </div>`;
-        })
-        .join('')}
+      ${
+        thematic.length
+          ? `<div class="menu-head">自然地理专题图层</div>
+             ${renderToggleRows(thematic)}`
+          : ''
+      }
+      <div class="menu-head ${thematic.length ? 'menu-head-sub' : ''}">地图战略图层开关</div>
+      ${renderToggleRows(overlays)}
     `;
 
     layersMenu.querySelectorAll('.menu-toggle-item').forEach((row) => {
@@ -79,6 +99,10 @@ export function initTopbar(app) {
         if (!item) return;
         item.set(!item.get());
         renderLayersMenu();
+        syncLayersBtn();
+        if (item.group === 'thematic') {
+          layersMenu.classList.add('hidden');
+        }
       });
     });
   }
@@ -135,6 +159,10 @@ export function initTopbar(app) {
   app.on('layer:change', () => {
     if (!layersMenu.classList.contains('hidden')) renderLayersMenu();
   });
+  app.on('lens', () => {
+    syncLayersBtn();
+    if (!layersMenu.classList.contains('hidden')) renderLayersMenu();
+  });
   app.on('data:nation', renderYields);
 
   // Wire extension Topbar API
@@ -157,9 +185,11 @@ export function initTopbar(app) {
     const idx = mapToggles.findIndex((t) => t.id === spec.id);
     if (idx >= 0) mapToggles[idx] = spec;
     else mapToggles.push(spec);
+    syncLayersBtn();
     renderLayersMenu();
   };
 
+  syncLayersBtn();
   renderYields();
   return { renderYields };
 }

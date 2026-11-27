@@ -3,6 +3,7 @@
 import { EDGE_CORNERS } from '../world.js';
 import { provinceColor, rgba } from '../color.js';
 import { drawCityBanners } from './banners.js?v=20261127-2';
+import { drawIsohyet400Labels } from './art/climate.js?v=20261127-4';
 
 function strokeHex(ctx, cx, cy, corners, scale = 1) {
   ctx.beginPath();
@@ -238,6 +239,9 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
 
   // 6. Crisp Screen-Space City Banners
   const hitBanners = drawCityBanners(ctx, w, cam, state, data);
+
+  // 6.5 400mm Isohyet callout pills (placed after banners with collision avoidance)
+  drawIsohyet400Labels(ctx, w, cam, state, hitBanners);
 
   for (const ov of ordered) {
     if ((ov.order || 0) > 40 && typeof ov.draw === 'function') {

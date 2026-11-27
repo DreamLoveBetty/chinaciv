@@ -21,6 +21,8 @@ export const ICONS = {
   wonder: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 3 2.7 5.5 6 .9-4.3 4.2 1 6-5.4-2.8-5.4 2.8 1-6L3.3 9.4l6-.9L12 3Z"/></svg>`,
   trade: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16c4-6 12-6 16 0"/><path d="m17 12 3 4-4.5.5"/></svg>`,
   resource: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 3 20 8.5 17 19 7 19 4 8.5"/></svg>`,
+  precip: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#62c4e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5C12 2.5 5.5 10 5.5 14.5a6.5 6.5 0 0 0 13 0C18.5 10 12 2.5 12 2.5Z"/></svg>`,
+  elevation: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#e2b969" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 19 6.5-10 4.5 6.5 3-4.2L21 19Z"/><path d="M6.5 19h11"/></svg>`,
 };
 
 export function iconHtml(name, fallback = '') {

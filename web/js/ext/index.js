@@ -1,7 +1,7 @@
 // Safe extension loader for layers, cityView, and advisors
 
 const EXTENSION_MODULES = [
-  './layers/index.js',
+  './layers/index.js?v=20261127-4',
   './cityView/index.js',
   './advisors/index.js',
 ];
