@@ -1,8 +1,41 @@
-// Floating map hover tooltip with smart screen-edge clamping
+// Floating map hover tooltip with O(1) cell lookup & zero-reflow transform positioning
 
 import { COVER_META, getLensCellValue } from '../terrain.js';
 import { escHtml, fmtField, fmtNum } from '../format.js';
 import { RESOURCE_STYLES } from '../render/art/resources.js';
+
+let cachedWondersSrc = null;
+let wondersByCell = new Map();
+let cachedResourcesSrc = null;
+let resourcesByCell = new Map();
+
+function getWonderAtCell(data, cellIdx) {
+  const list = data.wonders?.wonders;
+  if (!Array.isArray(list)) return null;
+  if (list !== cachedWondersSrc) {
+    cachedWondersSrc = list;
+    wondersByCell = new Map();
+    for (let i = 0; i < list.length; i++) {
+      const wn = list[i];
+      if (wn.cell >= 0 && !wondersByCell.has(wn.cell)) wondersByCell.set(wn.cell, wn);
+    }
+  }
+  return wondersByCell.get(cellIdx) || null;
+}
+
+function getResourceAtCell(data, cellIdx) {
+  const list = data.resources?.items;
+  if (!Array.isArray(list)) return null;
+  if (list !== cachedResourcesSrc) {
+    cachedResourcesSrc = list;
+    resourcesByCell = new Map();
+    for (let i = 0; i < list.length; i++) {
+      const res = list[i];
+      if (res.cell >= 0 && !resourcesByCell.has(res.cell)) resourcesByCell.set(res.cell, res);
+    }
+  }
+  return resourcesByCell.get(cellIdx) || null;
+}
 
 export function buildCellTooltipHtml(app, cellIdx) {
   const w = app.w;
@@ -34,15 +67,14 @@ export function buildCellTooltipHtml(app, cellIdx) {
     html += `<div class="tt-row"><span class="tt-k">县域人口</span><span class="tt-v">${escHtml(fmtField(county.population, { format: 'pop' }))}</span></div>`;
   }
 
-  // Check if a wonder or resource sits on this cell
-  if (app.state.layers.wonders && app.data.wonders?.wonders) {
-    const wn = app.data.wonders.wonders.find((x) => x.cell === cellIdx);
+  if (app.state.layers.wonders) {
+    const wn = getWonderAtCell(app.data, cellIdx);
     if (wn) {
       html += `<div class="tt-row"><span class="tt-k">奇观</span><span class="tt-v" style="color:#f2cb72">★ ${escHtml(wn.short || wn.name)}</span></div>`;
     }
   }
-  if (app.state.showResources && app.data.resources?.items) {
-    const res = app.data.resources.items.find((x) => x.cell === cellIdx);
+  if (app.state.showResources) {
+    const res = getResourceAtCell(app.data, cellIdx);
     if (res) {
       const stMeta = RESOURCE_STYLES[res.type];
       html += `<div class="tt-row"><span class="tt-k">${escHtml(stMeta?.label || '资源')}</span><span class="tt-v" style="color:${stMeta?.color || '#ecd08e'}">${escHtml(res.name || '')}</span></div>`;
@@ -54,33 +86,52 @@ export function buildCellTooltipHtml(app, cellIdx) {
 
 export function initTooltip(app) {
   const el = document.getElementById('map-tooltip');
+  let lastHtml = '';
+  let tipW = 200;
+  let tipH = 100;
+  let visible = false;
+
+  function moveTooltip(x, y) {
+    if (!visible) return;
+    const pad = 14;
+    let left = x + 14;
+    let top = y + 14;
+    if (left + tipW + pad > window.innerWidth) {
+      left = Math.max(pad, x - tipW - 14);
+    }
+    if (top + tipH + pad > window.innerHeight) {
+      top = Math.max(pad, y - tipH - 14);
+    }
+    el.style.transform = `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`;
+  }
 
   function showHtmlTooltip(x, y, html) {
     if (!html) {
       hideTooltip();
       return;
     }
-    el.innerHTML = html;
-    el.classList.remove('hidden');
-
-    const pad = 14;
-    const rect = el.getBoundingClientRect();
-    let left = x + 14;
-    let top = y + 14;
-    if (left + rect.width + pad > window.innerWidth) {
-      left = Math.max(pad, x - rect.width - 14);
+    if (html !== lastHtml || !visible) {
+      if (html !== lastHtml) {
+        lastHtml = html;
+        el.innerHTML = html;
+      }
+      if (!visible) {
+        el.classList.remove('hidden');
+        visible = true;
+      }
+      tipW = el.offsetWidth || 200;
+      tipH = el.offsetHeight || 100;
     }
-    if (top + rect.height + pad > window.innerHeight) {
-      top = Math.max(pad, y - rect.height - 14);
-    }
-    el.style.left = `${Math.round(left)}px`;
-    el.style.top = `${Math.round(top)}px`;
+    moveTooltip(x, y);
   }
 
   function hideTooltip() {
+    if (!visible) return;
+    visible = false;
     el.classList.add('hidden');
   }
 
   app.ui.showHtmlTooltip = showHtmlTooltip;
+  app.ui.moveTooltip = moveTooltip;
   app.ui.hideTooltip = hideTooltip;
 }

@@ -1,4 +1,4 @@
-// Screen-space Civilization-style City Banners with star emblem, population pill, yields, and badges
+// Screen-space Civilization-style City Banners with cached sorting, text width cache & zero shadowBlur
 
 import { provinceColor, rgba } from '../color.js';
 import { fmtPop } from '../format.js';
@@ -29,13 +29,36 @@ function resolveBadge(city, state, data) {
   return d?.badge || '';
 }
 
+const TOP_HUB_IDS = new Set([
+  'beijing', 'shanghai', 'shenzhen', 'guangzhou', 'chengdu', 'chongqing',
+  'hongkong', 'taipei', 'macau', 'wuhan', 'hangzhou', 'xian', 'harbin', 'urumqi', 'lhasa',
+]);
+
 function getTierPriority(city) {
   let score = (city.population || 0) / 1e6;
   if (city.is_provincial_anchor || city.capital) score += 80;
-  if (['beijing', 'shanghai', 'shenzhen', 'guangzhou', 'chengdu', 'chongqing', 'hongkong', 'taipei', 'macau', 'wuhan', 'hangzhou', 'xian', 'harbin', 'urumqi', 'lhasa'].includes(String(city.id).toLowerCase())) {
-    score += 40;
-  }
+  if (TOP_HUB_IDS.has(String(city.id).toLowerCase())) score += 40;
   return score;
+}
+
+let cachedCitiesSrc = null;
+let cachedCitiesLen = -1;
+let cachedSortedCities = [];
+const nameWCache = new Map();
+const popWCache = new Map();
+const badgeWCache = new Map();
+
+function getSortedCities(cities) {
+  if (cities === cachedCitiesSrc && cities.length === cachedCitiesLen) {
+    return cachedSortedCities;
+  }
+  cachedCitiesSrc = cities;
+  cachedCitiesLen = cities.length;
+  cachedSortedCities = cities
+    .map((c) => ({ city: c, prio: getTierPriority(c) }))
+    .sort((a, b) => b.prio - a.prio)
+    .map((x) => x.city);
+  return cachedSortedCities;
 }
 
 /**
@@ -51,11 +74,7 @@ export function drawCityBanners(ctx, w, cam, state, data) {
   const showDetails = zoom >= 0.52;
   const showBadges = zoom >= 0.36;
 
-  // Sort high-priority hubs first for clean de-overlapping at national zoom
-  const sorted = cities
-    .map((c) => ({ city: c, prio: getTierPriority(c) }))
-    .sort((a, b) => b.prio - a.prio);
-
+  const sorted = getSortedCities(cities);
   const placedRects = [];
   const margin = 4;
 
@@ -63,7 +82,7 @@ export function drawCityBanners(ctx, w, cam, state, data) {
   ctx.textBaseline = 'middle';
 
   for (let idx = 0; idx < sorted.length; idx++) {
-    const { city } = sorted[idx];
+    const city = sorted[idx];
     const wx = city.x ?? (city.cell >= 0 ? w.cx(city.cell) : null);
     const wy = city.y ?? (city.cell >= 0 ? w.cy(city.cell) : null);
     if (wx == null || wy == null) continue;
@@ -76,7 +95,6 @@ export function drawCityBanners(ctx, w, cam, state, data) {
       (state.selectedCity === city || String(state.selectedCity.id) === String(city.id));
     const isAnchor = Boolean(city.is_provincial_anchor || city.capital);
 
-    // At low national zoom, render provincial anchors + top cities without heavy overlaps
     if (!showAll && !isAnchor && !isSelected && zoom < 0.34 && (city.population || 0) < 7_500_000) {
       continue;
     }
@@ -86,10 +104,19 @@ export function drawCityBanners(ctx, w, cam, state, data) {
     const popTxt = fmtPop(city.population);
     const badge = showBadges ? resolveBadge(city, state, data) : '';
 
-    ctx.font = '700 11.5px "Noto Serif SC", "Songti SC", Georgia, serif';
-    const nameW = ctx.measureText(name).width;
-    ctx.font = '700 10px "PingFang SC", sans-serif';
-    const popW = ctx.measureText(popTxt).width + 10;
+    let nameW = nameWCache.get(name);
+    if (nameW == null) {
+      ctx.font = '700 11.5px "Noto Serif SC", "Songti SC", Georgia, serif';
+      nameW = ctx.measureText(name).width;
+      nameWCache.set(name, nameW);
+    }
+    let popW = popWCache.get(popTxt);
+    if (popW == null) {
+      ctx.font = '700 10px "PingFang SC", sans-serif';
+      popW = ctx.measureText(popTxt).width + 10;
+      popWCache.set(popTxt, popW);
+    }
+
     const starW = isAnchor ? 13 : 4;
     const barW = Math.ceil(starW + nameW + popW + 18);
     const barH = 22;
@@ -97,7 +124,6 @@ export function drawCityBanners(ctx, w, cam, state, data) {
     const bx = Math.round(pt.x - barW * 0.5);
     const by = Math.round(pt.y - barH - (zoom >= 0.45 ? 10 : 6));
 
-    // De-overlap at low/medium zoom (always draw selected city!)
     if (!isSelected && zoom < 0.9) {
       let overlaps = false;
       for (let r = 0; r < placedRects.length; r++) {
@@ -127,15 +153,15 @@ export function drawCityBanners(ctx, w, cam, state, data) {
     ctx.fill();
     ctx.stroke();
 
-    // Banner shadow & navy-slate pill
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
-    ctx.shadowBlur = 6;
-    ctx.shadowOffsetY = 2;
+    // Fast drop-shadow (no expensive shadowBlur per banner)
+    roundRectPath(ctx, bx + 1, by + 2.5, barW, barH, 5);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fill();
+
+    // Banner navy-slate pill
     roundRectPath(ctx, bx, by, barW, barH, 5);
     ctx.fillStyle = isSelected ? 'rgba(34, 48, 66, 0.97)' : 'rgba(17, 28, 40, 0.92)';
     ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
 
     // Left provincial color ribbon
     ctx.save();
@@ -162,13 +188,11 @@ export function drawCityBanners(ctx, w, cam, state, data) {
       curX += 12;
     }
 
-    // City name
     ctx.fillStyle = '#f5ebd1';
     ctx.font = '700 11.5px "Noto Serif SC", "Songti SC", Georgia, serif';
     ctx.textAlign = 'left';
     ctx.fillText(name, curX, midY);
 
-    // Population pill on right
     const pillX = bx + barW - popW - 4;
     roundRectPath(ctx, pillX, by + 3.5, popW, barH - 7, 3.5);
     ctx.fillStyle = rgba(pColor, 0.28);
@@ -178,10 +202,14 @@ export function drawCityBanners(ctx, w, cam, state, data) {
     ctx.textAlign = 'center';
     ctx.fillText(popTxt, pillX + popW * 0.5, midY);
 
-    // District/specialty badge strip below banner when zoomed or flagged
     if (badge) {
-      ctx.font = '600 9.5px "PingFang SC", sans-serif';
-      const bw = Math.max(barW * 0.72, ctx.measureText(badge).width + 12);
+      let badgeTxtW = badgeWCache.get(badge);
+      if (badgeTxtW == null) {
+        ctx.font = '600 9.5px "PingFang SC", sans-serif';
+        badgeTxtW = ctx.measureText(badge).width + 12;
+        badgeWCache.set(badge, badgeTxtW);
+      }
+      const bw = Math.max(barW * 0.72, badgeTxtW);
       const bpx = Math.round(pt.x - bw * 0.5);
       const bpy = by + barH + 1;
       roundRectPath(ctx, bpx, bpy, bw, 14, 3);
@@ -191,24 +219,17 @@ export function drawCityBanners(ctx, w, cam, state, data) {
       ctx.lineWidth = 0.8;
       ctx.stroke();
       ctx.fillStyle = '#ecd08e';
+      ctx.font = '600 9.5px "PingFang SC", sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText(badge, pt.x, bpy + 7.5);
     }
 
-    // Mini 5-yield dots bar when zoomed in
     if (showDetails && city.yields) {
       const yY = by + barH + (badge ? 17 : 3);
-      const dots = [
-        ['#8fd47e', city.yields.food],
-        ['#e69d5c', city.yields.production],
-        ['#f2d16b', city.yields.gold],
-        ['#72c7f2', city.yields.science],
-        ['#d59bf6', city.yields.culture],
-      ];
-      const dotSpan = 28;
-      const dx0 = pt.x - dotSpan * 0.5;
-      for (let d = 0; d < dots.length; d++) {
-        ctx.fillStyle = dots[d][0];
+      const colors = ['#8fd47e', '#e69d5c', '#f2d16b', '#72c7f2', '#d59bf6'];
+      const dx0 = pt.x - 14;
+      for (let d = 0; d < 5; d++) {
+        ctx.fillStyle = colors[d];
         ctx.beginPath();
         ctx.arc(dx0 + d * 7, yY + 3, 2.2, 0, Math.PI * 2);
         ctx.fill();

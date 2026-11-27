@@ -1,4 +1,4 @@
-// Strategic energy plants & mineral resources renderer + filter matching
+// Strategic energy plants & mineral resources renderer + filter matching + viewport culling
 
 export const RESOURCE_STYLES = {
   nuclear:        { label: '核电站',     color: '#6ce5ff', badge: '核', shape: 'atom' },
@@ -34,13 +34,19 @@ export function matchesResourceFilter(item, rf) {
   return true;
 }
 
-export function drawResources(ctx, w, data, state, zoom) {
+export function drawResources(ctx, w, data, state, zoom, bounds = null) {
   if (!state.showResources) return;
   const items = data.resources?.items;
   if (!Array.isArray(items) || !items.length) return;
 
   const rf = state.resourceFilter;
   const rad = Math.max(4.5, Math.min(9.5, 5.4 / Math.pow(zoom, 0.58)));
+  const pad = rad * 2;
+  const x0 = bounds ? bounds.x0 - pad : -Infinity;
+  const y0 = bounds ? bounds.y0 - pad : -Infinity;
+  const x1 = bounds ? bounds.x1 + pad : Infinity;
+  const y1 = bounds ? bounds.y1 + pad : Infinity;
+
   const minDistSq = zoom < 0.35 ? Math.pow(22 / zoom, 2) : Math.pow(12 / zoom, 2);
   const placed = [];
 
@@ -48,6 +54,7 @@ export function drawResources(ctx, w, data, state, zoom) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `700 ${(rad * 1.15).toFixed(1)}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+  ctx.lineWidth = Math.max(0.8, 1.4 / zoom);
 
   for (let k = 0; k < items.length; k++) {
     const it = items[k];
@@ -55,9 +62,8 @@ export function drawResources(ctx, w, data, state, zoom) {
 
     const x = it.x ?? (it.cell >= 0 ? w.cx(it.cell) : null);
     const y = it.y ?? (it.cell >= 0 ? w.cy(it.cell) : null);
-    if (x == null || y == null) continue;
+    if (x == null || y == null || x < x0 || x > x1 || y < y0 || y > y1) continue;
 
-    // Gentle de-cluttering unless a specific filter is active or zoomed in
     if (!rf && zoom < 0.75) {
       let crowded = false;
       for (let p = placed.length - 1; p >= 0 && p >= placed.length - 40; p--) {
@@ -74,12 +80,10 @@ export function drawResources(ctx, w, data, state, zoom) {
 
     const st = RESOURCE_STYLES[it.type] || { color: '#d8c28a', badge: '资' };
 
-    // Hex-diamond Civ resource medallion
     ctx.beginPath();
     ctx.arc(x, y, rad, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(13, 22, 33, 0.88)';
     ctx.fill();
-    ctx.lineWidth = Math.max(0.8, 1.4 / zoom);
     ctx.strokeStyle = st.color;
     ctx.stroke();
 

@@ -1,15 +1,15 @@
-// Rivers, lakes, and South China Sea 9/10-dash boundary line
+// Rivers, lakes, and South China Sea 9/10-dash boundary line with cached Path2D geometry
 
-function tracePolyline(ctx, pts) {
+function tracePolyline(path, pts) {
   if (!Array.isArray(pts) || pts.length < 2) return;
-  ctx.moveTo(pts[0][0], pts[0][1]);
+  path.moveTo(pts[0][0], pts[0][1]);
   for (let i = 1; i < pts.length - 1; i++) {
     const mx = (pts[i][0] + pts[i + 1][0]) * 0.5;
     const my = (pts[i][1] + pts[i + 1][1]) * 0.5;
-    ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
+    path.quadraticCurveTo(pts[i][0], pts[i][1], mx, my);
   }
   const last = pts[pts.length - 1];
-  ctx.lineTo(last[0], last[1]);
+  path.lineTo(last[0], last[1]);
 }
 
 function extractPoints(item) {
@@ -24,16 +24,13 @@ function extractPoints(item) {
   return null;
 }
 
-export function drawWaterFeatures(ctx, w, zoom) {
-  ctx.save();
+function ensureWaterPaths(w) {
+  if (w._waterPathsBuilt) return;
+  w._waterPathsBuilt = true;
 
-  // 1. Lakes
   const lakes = w.lakes || [];
   if (lakes.length) {
-    ctx.fillStyle = '#185482';
-    ctx.strokeStyle = '#5da9d6';
-    ctx.lineWidth = Math.max(0.8, 1.3 / zoom);
-    ctx.beginPath();
+    const lp = new Path2D();
     for (const lake of lakes) {
       const rings = Array.isArray(lake?.rings)
         ? lake.rings
@@ -42,55 +39,26 @@ export function drawWaterFeatures(ctx, w, zoom) {
           : [extractPoints(lake)].filter(Boolean);
       for (const ring of rings) {
         if (!ring || ring.length < 3) continue;
-        ctx.moveTo(ring[0][0], ring[0][1]);
+        lp.moveTo(ring[0][0], ring[0][1]);
         for (let k = 1; k < ring.length; k++) {
-          ctx.lineTo(ring[k][0], ring[k][1]);
+          lp.lineTo(ring[k][0], ring[k][1]);
         }
-        ctx.closePath();
+        lp.closePath();
       }
     }
-    ctx.fill();
-    ctx.stroke();
+    w._lakesPath = lp;
   }
 
-  // 2. Rivers
   const rivers = w.rivers || [];
   if (rivers.length) {
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    // Under-glow bank
-    ctx.strokeStyle = 'rgba(13, 38, 63, 0.55)';
-    ctx.lineWidth = Math.max(2.0, 4.0 / zoom);
-    ctx.beginPath();
+    const rp = new Path2D();
     for (const rv of rivers) {
       const pts = extractPoints(rv);
-      if (pts) tracePolyline(ctx, pts);
+      if (pts) tracePolyline(rp, pts);
     }
-    ctx.stroke();
-
-    // Main river body
-    ctx.strokeStyle = '#3b8ec4';
-    ctx.lineWidth = Math.max(1.2, 2.5 / zoom);
-    ctx.beginPath();
-    for (const rv of rivers) {
-      const pts = extractPoints(rv);
-      if (pts) tracePolyline(ctx, pts);
-    }
-    ctx.stroke();
-
-    // Center water glint
-    ctx.strokeStyle = 'rgba(138, 212, 248, 0.45)';
-    ctx.lineWidth = Math.max(0.5, 0.9 / zoom);
-    ctx.beginPath();
-    for (const rv of rivers) {
-      const pts = extractPoints(rv);
-      if (pts) tracePolyline(ctx, pts);
-    }
-    ctx.stroke();
+    w._riversPath = rp;
   }
 
-  // 3. South China Sea dashed boundary line (world.scs_line)
   const scs = w.scs_line;
   if (scs && scs.length) {
     const segments = [];
@@ -102,22 +70,58 @@ export function drawWaterFeatures(ctx, w, zoom) {
         if (pts) segments.push(pts);
       }
     }
-
     if (segments.length) {
-      ctx.strokeStyle = 'rgba(236, 208, 142, 0.75)';
-      ctx.lineWidth = Math.max(1.4, 2.2 / zoom);
-      ctx.setLineDash([18 / Math.max(0.25, zoom), 11 / Math.max(0.25, zoom)]);
-      ctx.beginPath();
+      const sp = new Path2D();
       for (const pts of segments) {
         if (pts.length < 2) continue;
-        ctx.moveTo(pts[0][0], pts[0][1]);
+        sp.moveTo(pts[0][0], pts[0][1]);
         for (let k = 1; k < pts.length; k++) {
-          ctx.lineTo(pts[k][0], pts[k][1]);
+          sp.lineTo(pts[k][0], pts[k][1]);
         }
       }
-      ctx.stroke();
-      ctx.setLineDash([]);
+      w._scsPath = sp;
     }
+  }
+}
+
+export function drawWaterFeatures(ctx, w, zoom) {
+  ensureWaterPaths(w);
+  ctx.save();
+
+  // 1. Lakes
+  if (w._lakesPath) {
+    ctx.fillStyle = '#185482';
+    ctx.strokeStyle = '#5da9d6';
+    ctx.lineWidth = Math.max(0.8, 1.3 / zoom);
+    ctx.fill(w._lakesPath);
+    ctx.stroke(w._lakesPath);
+  }
+
+  // 2. Rivers (3 passes reusing cached Path2D)
+  if (w._riversPath) {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.strokeStyle = 'rgba(13, 38, 63, 0.55)';
+    ctx.lineWidth = Math.max(2.0, 4.0 / zoom);
+    ctx.stroke(w._riversPath);
+
+    ctx.strokeStyle = '#3b8ec4';
+    ctx.lineWidth = Math.max(1.2, 2.5 / zoom);
+    ctx.stroke(w._riversPath);
+
+    ctx.strokeStyle = 'rgba(138, 212, 248, 0.45)';
+    ctx.lineWidth = Math.max(0.5, 0.9 / zoom);
+    ctx.stroke(w._riversPath);
+  }
+
+  // 3. South China Sea dashed boundary line (world.scs_line)
+  if (w._scsPath) {
+    ctx.strokeStyle = 'rgba(236, 208, 142, 0.75)';
+    ctx.lineWidth = Math.max(1.4, 2.2 / zoom);
+    ctx.setLineDash([18 / Math.max(0.25, zoom), 11 / Math.max(0.25, zoom)]);
+    ctx.stroke(w._scsPath);
+    ctx.setLineDash([]);
   }
 
   ctx.restore();

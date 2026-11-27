@@ -239,6 +239,23 @@ export function prepareWorld(raw, geoLookup = null) {
 
   const corners = hexCornerOffsets(R);
 
+  // Pre-split national/coast and per-province border edge arrays for zero-alloc rendering
+  const byProvLists = Array.from({ length: nStates }, () => []);
+  for (let k = 0; k < provBorderEdges.length; k += 3) {
+    const p = provBorderEdges[k + 2];
+    if (p >= 0 && p < nStates) byProvLists[p].push(provBorderEdges[k], provBorderEdges[k + 1]);
+  }
+  const provBorderByProv = byProvLists.map((arr) => new Int32Array(arr));
+
+  const seaList = [];
+  const landList = [];
+  for (let k = 0; k < natBorderEdges.length; k += 3) {
+    if (natBorderEdges[k + 2] === 0) seaList.push(natBorderEdges[k], natBorderEdges[k + 1]);
+    else landList.push(natBorderEdges[k], natBorderEdges[k + 1]);
+  }
+  const seaCoastEdges = new Int32Array(seaList);
+  const landBorderEdges = new Int32Array(landList);
+
   const w = {
     ...raw,
     grid: { ...grid, cols, rows, R, W, H_step, width_km, height_km },
@@ -269,6 +286,9 @@ export function prepareWorld(raw, geoLookup = null) {
     chinaBounds: { x0: chinaX0, y0: chinaY0, x1: chinaX1, y1: chinaY1 },
     provBorderEdges: new Int32Array(provBorderEdges),
     natBorderEdges: new Int32Array(natBorderEdges),
+    provBorderByProv,
+    seaCoastEdges,
+    landBorderEdges,
     cx(i) {
       return i >= 0 && i < N ? cxArr[i] : 0;
     },

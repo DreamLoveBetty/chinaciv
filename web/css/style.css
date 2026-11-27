@@ -476,8 +476,7 @@ body {
   top: 0;
   bottom: 0;
   z-index: 30;
-  background: var(--panel-glass);
-  backdrop-filter: blur(8px);
+  background: rgba(15, 24, 35, 0.97);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -503,8 +502,7 @@ body {
   width: 328px;
   max-height: calc(100% - 24px);
   overflow-y: auto;
-  background: var(--panel-glass);
-  backdrop-filter: blur(8px);
+  background: rgba(15, 24, 35, 0.97);
   border: 1.5px solid var(--gold);
   border-radius: var(--radius);
   box-shadow: var(--shadow-lg);
@@ -944,8 +942,11 @@ body {
 /* ==================== TOOLTIP ==================== */
 .map-tooltip {
   position: fixed;
+  left: 0;
+  top: 0;
   z-index: 120;
   pointer-events: none;
+  will-change: transform;
   max-width: 290px;
   background: rgba(15, 24, 34, 0.96);
   border: 1px solid var(--gold);
@@ -987,8 +988,7 @@ body.adv-tip-on .map-tooltip {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(5, 11, 18, 0.72);
-  backdrop-filter: blur(4px);
+  background: rgba(5, 11, 18, 0.78);
   padding: 20px;
 }
 .modal-card {

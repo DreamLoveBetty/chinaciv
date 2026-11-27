@@ -47,6 +47,7 @@ export function createApp({ cam, renderer }) {
       closeDock() {},
       showToast() {},
       showHtmlTooltip() {},
+      moveTooltip() {},
       hideTooltip() {},
     },
     layers: {

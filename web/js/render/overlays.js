@@ -1,4 +1,4 @@
-// Dynamic 60fps overlay renderer: highlight/brush dimming, selections, hover hex, external overlays, city banners
+// Dynamic 60fps overlay renderer: memoized highlight cells, batched draw calls, fast selection & banners
 
 import { EDGE_CORNERS } from '../world.js';
 import { provinceColor, rgba } from '../color.js';
@@ -15,8 +15,25 @@ function strokeHex(ctx, cx, cy, corners, scale = 1) {
   ctx.closePath();
 }
 
-function collectHighlightedCells(w, hl, state, data) {
+function traceHexSubpath(ctx, cx, cy, corners, scale = 0.98) {
+  ctx.moveTo(cx + corners[0][0] * scale, cy + corners[0][1] * scale);
+  ctx.lineTo(cx + corners[1][0] * scale, cy + corners[1][1] * scale);
+  ctx.lineTo(cx + corners[2][0] * scale, cy + corners[2][1] * scale);
+  ctx.lineTo(cx + corners[3][0] * scale, cy + corners[3][1] * scale);
+  ctx.lineTo(cx + corners[4][0] * scale, cy + corners[4][1] * scale);
+  ctx.lineTo(cx + corners[5][0] * scale, cy + corners[5][1] * scale);
+  ctx.closePath();
+}
+
+const hlCellCache = new WeakMap();
+
+function getHighlightedCells(w, hl, state, data) {
   if (!hl) return null;
+  const cached = hlCellCache.get(hl);
+  if (cached && cached.nCities === (state?.cities?.length || 0)) {
+    return cached.list;
+  }
+
   const set = new Set();
   if (hl.cells) {
     for (const c of hl.cells) if (c >= 0 && c < w.N) set.add(c);
@@ -24,13 +41,13 @@ function collectHighlightedCells(w, hl, state, data) {
   if (hl.counties && w.countyCells) {
     for (const ct of hl.counties) {
       const list = w.countyCells[ct];
-      if (list) for (const c of list) set.add(c);
+      if (list) for (let k = 0; k < list.length; k++) set.add(list[k]);
     }
   }
   if (hl.states && w.stateCells) {
     for (const st of hl.states) {
       const list = w.stateCells[st];
-      if (list) for (const c of list) set.add(c);
+      if (list) for (let k = 0; k < list.length; k++) set.add(list[k]);
     }
   }
   if (hl.cities) {
@@ -56,12 +73,20 @@ function collectHighlightedCells(w, hl, state, data) {
       if (it && it.cell >= 0 && it.cell < w.N) set.add(it.cell);
     }
   }
-  return set;
+  const list = Array.from(set);
+  hlCellCache.set(hl, { nCities: state?.cities?.length || 0, list });
+  return list;
 }
 
 export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
-  const { width, height, dpr, zoom } = cam;
-  const { cxArr, cyArr, corners } = w;
+  const { dpr, zoom } = cam;
+  const { cxArr, cyArr, corners, R } = w;
+  const vb = cam.viewBoundsWorld();
+  const cullPad = R * 1.6;
+  const vx0 = vb.x0 - cullPad;
+  const vy0 = vb.y0 - cullPad;
+  const vx1 = vb.x1 + cullPad;
+  const vy1 = vb.y1 + cullPad;
 
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -76,25 +101,29 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
   // 1. Highlight / Brush overlay (Explorer & Advisors)
   const hl = state.highlight;
   if (hl) {
-    const hlCells = collectHighlightedCells(w, hl, state, data);
+    const hlCells = getHighlightedCells(w, hl, state, data);
     const shouldDim = hl.dim || hl.dimOthers;
     if (shouldDim) {
       const dimAlpha = typeof shouldDim === 'number' ? shouldDim : 0.56;
-      const vb = cam.viewBoundsWorld();
       ctx.fillStyle = `rgba(6, 13, 22, ${dimAlpha})`;
       ctx.fillRect(vb.x0 - 50, vb.y0 - 50, vb.x1 - vb.x0 + 100, vb.y1 - vb.y0 + 100);
     }
 
-    if (hlCells && hlCells.size > 0) {
+    if (hlCells && hlCells.length > 0) {
       const hlColor = hl.color || '#ecd08e';
       ctx.fillStyle = rgba(hlColor, hl.fillAlpha ?? 0.34);
       ctx.strokeStyle = hl.border || hlColor;
       ctx.lineWidth = Math.max(1.0, 2.0 / zoom);
-      for (const ci of hlCells) {
-        strokeHex(ctx, cxArr[ci], cyArr[ci], corners, 0.98);
-        ctx.fill();
-        ctx.stroke();
+      ctx.beginPath();
+      for (let k = 0; k < hlCells.length; k++) {
+        const ci = hlCells[k];
+        const x = cxArr[ci];
+        const y = cyArr[ci];
+        if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+        traceHexSubpath(ctx, x, y, corners, 0.98);
       }
+      ctx.fill();
+      ctx.stroke();
     }
 
     // Proportional bubbles (Advisors)
@@ -102,7 +131,7 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
       for (const b of hl.bubbles) {
         const bx = b.x ?? (b.cell >= 0 ? cxArr[b.cell] : null);
         const by = b.y ?? (b.cell >= 0 ? cyArr[b.cell] : null);
-        if (bx == null || by == null) continue;
+        if (bx == null || by == null || bx < vx0 - 40 || bx > vx1 + 40 || by < vy0 - 40 || by > vy1 + 40) continue;
         const rad = Math.max(6 / zoom, (b.r || 12) / Math.pow(zoom, 0.55));
         ctx.beginPath();
         ctx.arc(bx, by, rad, 0, Math.PI * 2);
@@ -128,34 +157,33 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
     }
   }
 
-  // 2. Selected Province outline
-  if (state.selectedState != null && w.stateCells[state.selectedState]) {
+  // 2. Selected Province outline (uses pre-split provBorderByProv)
+  if (state.selectedState != null && w.provBorderByProv?.[state.selectedState]) {
     const sIdx = state.selectedState;
     const col = provinceColor(sIdx);
-    const { provBorderEdges } = w;
+    const edges = w.provBorderByProv[sIdx];
     ctx.strokeStyle = '#ffe6a3';
     ctx.lineWidth = Math.max(2.2, 3.6 / zoom);
     ctx.lineCap = 'round';
     ctx.beginPath();
-    for (let k = 0; k < provBorderEdges.length; k += 3) {
-      if (provBorderEdges[k + 2] !== sIdx) continue;
-      const ci = provBorderEdges[k];
-      const d = provBorderEdges[k + 1];
-      const [k1, k2] = EDGE_CORNERS[d];
+    for (let k = 0; k < edges.length; k += 2) {
+      const ci = edges[k];
       const x = cxArr[ci];
       const y = cyArr[ci];
+      if (x < vx0 || x > vx1 || y < vy0 || y > vy1) continue;
+      const d = edges[k + 1];
+      const [k1, k2] = EDGE_CORNERS[d];
       ctx.moveTo(x + corners[k1][0], y + corners[k1][1]);
       ctx.lineTo(x + corners[k2][0], y + corners[k2][1]);
     }
     ctx.stroke();
 
-    // Subtle colored aura
     ctx.strokeStyle = rgba(col, 0.55);
     ctx.lineWidth = Math.max(4.5, 7 / zoom);
     ctx.stroke();
   }
 
-  // 3. Selected City footprint
+  // 3. Selected City footprint (batched)
   if (state.selectedCity) {
     const city = state.selectedCity;
     const fp = Array.isArray(city.footprint) && city.footprint.length ? city.footprint : city.cell >= 0 ? [city.cell] : [];
@@ -163,12 +191,13 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
       ctx.fillStyle = 'rgba(236, 208, 142, 0.18)';
       ctx.strokeStyle = '#ffe59c';
       ctx.lineWidth = Math.max(1.5, 2.5 / zoom);
+      ctx.beginPath();
       for (const ci of fp) {
         if (ci < 0 || ci >= w.N) continue;
-        strokeHex(ctx, cxArr[ci], cyArr[ci], corners, 0.96);
-        ctx.fill();
-        ctx.stroke();
+        traceHexSubpath(ctx, cxArr[ci], cyArr[ci], corners, 0.96);
       }
+      ctx.fill();
+      ctx.stroke();
     }
   }
 

@@ -1,7 +1,7 @@
-// Offscreen-cached 60fps Canvas 2D hex map renderer
+// Offscreen-cached 60fps Canvas 2D hex map renderer with zoom scale-blit & color-batched tile baking
 
 import { rgbToHex, rgba, provinceColor } from '../color.js';
-import { terrainHexColor, buildLensColorizer } from '../terrain.js';
+import { getTerrainColorHexArr, buildLensColorizer } from '../terrain.js';
 import { drawTerrainArt } from './art/terrain.js';
 import { drawWaterFeatures } from './art/water.js';
 import { drawBorders } from './art/borders.js';
@@ -19,8 +19,9 @@ export function createMapRenderer({ canvas, cam, app }) {
 
   let staticDirty = true;
   let drawQueued = false;
-  let cacheMeta = null; // { x0, y0, x1, y1, zoom, dpr, wPx, hPx }
+  let cacheMeta = null; // { x0, y0, x1, y1, zoom, dpr, cacheW, cacheH }
   let lastHitBanners = [];
+  let cachedVignette = null; // { w, h, grad }
 
   function drawHexPath(c, cx, cy, corners, scale = 1.015) {
     c.beginPath();
@@ -33,37 +34,55 @@ export function createMapRenderer({ canvas, cam, app }) {
     c.closePath();
   }
 
+  function traceHexSubpath(c, cx, cy, corners, scale = 1.018) {
+    c.moveTo(cx + corners[0][0] * scale, cy + corners[0][1] * scale);
+    c.lineTo(cx + corners[1][0] * scale, cy + corners[1][1] * scale);
+    c.lineTo(cx + corners[2][0] * scale, cy + corners[2][1] * scale);
+    c.lineTo(cx + corners[3][0] * scale, cy + corners[3][1] * scale);
+    c.lineTo(cx + corners[4][0] * scale, cy + corners[4][1] * scale);
+    c.lineTo(cx + corners[5][0] * scale, cy + corners[5][1] * scale);
+    c.closePath();
+  }
+
+  function dimHexColor(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = Math.round(((n >> 16) & 255) * 0.3 + 12);
+    const g = Math.round(((n >> 8) & 255) * 0.3 + 16);
+    const b = Math.round((n & 255) * 0.3 + 22);
+    return rgbToHex(r, g, b);
+  }
+
   function bakeStaticCache() {
     const w = app.w;
     if (!w) return;
 
     const vb = cam.viewBoundsWorld();
-    const viewWKm = Math.max(200, vb.x1 - vb.x0);
-    const viewHKm = Math.max(200, vb.y1 - vb.y0);
-
-    // Extra margin around viewport so panning is pure blit
-    const marginRatio = 0.42;
-    const x0 = vb.x0 - viewWKm * marginRatio;
-    const y0 = vb.y0 - viewHKm * marginRatio;
-    const x1 = vb.x1 + viewWKm * marginRatio;
-    const y1 = vb.y1 + viewHKm * marginRatio;
-
-    const dpr = cam.dpr;
     const zoom = cam.zoom;
-    const maxDim = 4096;
-    let cacheW = Math.max(2, Math.round((x1 - x0) * zoom * dpr));
-    let cacheH = Math.max(2, Math.round((y1 - y0) * zoom * dpr));
+    const dpr = cam.dpr;
+
+    // 240 CSS-px margin around viewport so normal drags stay 100% inside cache without mid-drag rebakes
+    const padKm = Math.min(950, Math.max(150, 240 / Math.max(0.12, zoom)));
+    const x0 = vb.x0 - padKm;
+    const y0 = vb.y0 - padKm;
+    const x1 = vb.x1 + padKm;
+    const y1 = vb.y1 + padKm;
+
+    const maxDim = 3072;
+    const effDpr = zoom < 0.5 ? Math.min(dpr, 1.5) : dpr;
+    let cacheW = Math.max(2, Math.round((x1 - x0) * zoom * effDpr));
+    let cacheH = Math.max(2, Math.round((y1 - y0) * zoom * effDpr));
     if (cacheW > maxDim || cacheH > maxDim) {
       const s = Math.min(maxDim / cacheW, maxDim / cacheH);
       cacheW = Math.round(cacheW * s);
       cacheH = Math.round(cacheH * s);
     }
 
-    cacheCanvas.width = cacheW;
-    cacheCanvas.height = cacheH;
+    if (cacheCanvas.width !== cacheW || cacheCanvas.height !== cacheH) {
+      cacheCanvas.width = cacheW;
+      cacheCanvas.height = cacheH;
+    }
 
-    const effectiveScale = cacheW / ((x1 - x0) * zoom);
-    const scaleTotal = zoom * effectiveScale;
+    const scaleTotal = cacheW / (x1 - x0);
 
     // 1. Deep ocean background
     cacheCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -81,94 +100,144 @@ export function createMapRenderer({ canvas, cam, app }) {
     const c0 = Math.max(0, Math.floor((x0 - W * 1.5) / W));
     const c1 = Math.min(cols - 1, Math.ceil((x1 + W * 1.5) / W));
 
-    const visibleCells = [];
     const landCells = [];
+    const bandMatchCells = [];
     const activeLens = app.state.lens;
     const colorizer = activeLens ? buildLensColorizer(w, app.data, activeLens) : null;
+    const colorArr = colorizer ? colorizer.colorHexArr : getTerrainColorHexArr(w);
     const activeBand = app.state.band;
+    const dimCache = new Map();
 
-    // 2. Hex tiles pass (foreign land, coastal ocean, China land / lens choropleth)
+    // 2. Color-batched hex tiles pass, chunked to <=250 hexes per beginPath() so Skia tessellator stays <1ms
+    const buckets = new Map();
     for (let r = r0; r <= r1; r++) {
       const rowOff = r * cols;
       for (let c = c0; c <= c1; c++) {
         const i = rowOff + c;
-        visibleCells.push(i);
+        const hex = colorArr[i];
+        if (!hex) continue;
         const ow = owner[i];
-        if (ow === -1 && !(w.isCoast && w.isCoast[i])) continue;
-
-        let rgb = colorizer ? colorizer.colorFor(i) : terrainHexColor(w, i);
-        if (ow >= 0) landCells.push(i);
-
-        // If a legend band is selected, dim non-matching China cells cleanly
-        if (ow >= 0 && colorizer && activeBand && !colorizer.matchesBand(i, activeBand)) {
-          rgb = [
-            Math.round(rgb[0] * 0.3 + 12),
-            Math.round(rgb[1] * 0.3 + 16),
-            Math.round(rgb[2] * 0.3 + 22),
-          ];
+        let fillHex = hex;
+        if (ow >= 0) {
+          landCells.push(i);
+          if (colorizer && activeBand) {
+            if (colorizer.matchesBand(i, activeBand)) {
+              bandMatchCells.push(i);
+            } else {
+              let dh = dimCache.get(hex);
+              if (!dh) {
+                dh = dimHexColor(hex);
+                dimCache.set(hex, dh);
+              }
+              fillHex = dh;
+            }
+          }
         }
+        let bucket = buckets.get(fillHex);
+        if (!bucket) {
+          bucket = [];
+          buckets.set(fillHex, bucket);
+        }
+        bucket.push(i);
+      }
+    }
 
-        cacheCtx.fillStyle = rgbToHex(rgb[0], rgb[1], rgb[2]);
-        drawHexPath(cacheCtx, cxArr[i], cyArr[i], corners, 1.018);
+    const CHUNK = 250;
+    for (const [fillHex, list] of buckets) {
+      cacheCtx.fillStyle = fillHex;
+      for (let off = 0; off < list.length; off += CHUNK) {
+        cacheCtx.beginPath();
+        const end = Math.min(list.length, off + CHUNK);
+        for (let k = off; k < end; k++) {
+          const i = list[k];
+          traceHexSubpath(cacheCtx, cxArr[i], cyArr[i], corners, 1.018);
+        }
         cacheCtx.fill();
       }
     }
 
-    // 3. Subtle hex grid lines
-    if (zoom >= 0.2) {
+    // 3. Subtle hex grid lines (3 shared edges per hex, chunked <=350 to avoid Skia O(N log N) stroke slowdown)
+    if (zoom >= 0.22 && landCells.length) {
       cacheCtx.strokeStyle = activeLens ? 'rgba(10, 18, 28, 0.22)' : 'rgba(13, 25, 38, 0.20)';
       cacheCtx.lineWidth = Math.max(0.55, 0.9 / Math.max(0.25, zoom));
-      cacheCtx.beginPath();
-      for (let k = 0; k < landCells.length; k++) {
-        const i = landCells[k];
-        const x = cxArr[i];
-        const y = cyArr[i];
-        cacheCtx.moveTo(x + corners[0][0], y + corners[0][1]);
-        for (let m = 1; m < 6; m++) {
-          cacheCtx.lineTo(x + corners[m][0], y + corners[m][1]);
+      const c5x = corners[5][0], c5y = corners[5][1];
+      const c0x = corners[0][0], c0y = corners[0][1];
+      const c1x = corners[1][0], c1y = corners[1][1];
+      const c2x = corners[2][0], c2y = corners[2][1];
+      for (let off = 0; off < landCells.length; off += 350) {
+        cacheCtx.beginPath();
+        const end = Math.min(landCells.length, off + 350);
+        for (let k = off; k < end; k++) {
+          const i = landCells[k];
+          const x = cxArr[i];
+          const y = cyArr[i];
+          cacheCtx.moveTo(x + c5x, y + c5y);
+          cacheCtx.lineTo(x + c0x, y + c0y);
+          cacheCtx.lineTo(x + c1x, y + c1y);
+          cacheCtx.lineTo(x + c2x, y + c2y);
         }
-        cacheCtx.closePath();
-      }
-      cacheCtx.stroke();
-    }
-
-    // Highlight matching band cells subtly with bright rim
-    if (colorizer && activeBand) {
-      cacheCtx.strokeStyle = 'rgba(255, 232, 166, 0.72)';
-      cacheCtx.lineWidth = Math.max(1.0, 1.8 / zoom);
-      for (let k = 0; k < landCells.length; k++) {
-        const i = landCells[k];
-        if (!colorizer.matchesBand(i, activeBand)) continue;
-        drawHexPath(cacheCtx, cxArr[i], cyArr[i], corners, 0.96);
         cacheCtx.stroke();
       }
     }
 
-    // 4. Procedural terrain glyphs (subtle under lens, rich in terrain mode)
+    // Highlight matching band cells in chunked strokes
+    if (bandMatchCells.length) {
+      cacheCtx.strokeStyle = 'rgba(255, 232, 166, 0.72)';
+      cacheCtx.lineWidth = Math.max(1.0, 1.8 / zoom);
+      for (let off = 0; off < bandMatchCells.length; off += 300) {
+        cacheCtx.beginPath();
+        const end = Math.min(bandMatchCells.length, off + 300);
+        for (let k = off; k < end; k++) {
+          const i = bandMatchCells[k];
+          traceHexSubpath(cacheCtx, cxArr[i], cyArr[i], corners, 0.96);
+        }
+        cacheCtx.stroke();
+      }
+    }
+
+    // 4. Procedural terrain glyphs (batched in terrain.js)
     if (!activeLens) {
       drawTerrainArt(cacheCtx, w, landCells, zoom, true);
     }
 
-    // 5. Rivers, lakes & South China Sea dashed line
-    drawWaterFeatures(cacheCtx, w, zoom);
+    // 5. Rivers, lakes & South China Sea dashed line (cached Path2D in water.js)
+    const bounds = { x0, y0, x1, y1 };
+    drawWaterFeatures(cacheCtx, w, zoom, bounds);
 
-    // 6. Provincial border ribbons & national border
-    drawBorders(cacheCtx, w, zoom, Boolean(activeLens));
+    // 6. Provincial border ribbons & national border (pre-indexed + viewport culled)
+    drawBorders(cacheCtx, w, zoom, Boolean(activeLens), bounds);
 
-    // 7. City footprint hex accents
+    // 7. City footprint hex accents (batched per province color)
     if (Array.isArray(app.state.cities)) {
+      const cityBuckets = new Map();
       for (const city of app.state.cities) {
-        if (city.cell == null || city.cell < 0 || city.cell >= w.N) continue;
+        const ci = city.cell;
+        if (ci == null || ci < 0 || ci >= w.N) continue;
+        const cx = cxArr[ci];
+        const cy = cyArr[ci];
+        if (cx < x0 - W || cx > x1 + W || cy < y0 - W || cy > y1 + W) continue;
         const pCol = provinceColor(city.province_idx ?? 0);
+        let arr = cityBuckets.get(pCol);
+        if (!arr) {
+          arr = [];
+          cityBuckets.set(pCol, arr);
+        }
+        arr.push(ci);
+      }
+      for (const [pCol, arr] of cityBuckets) {
         cacheCtx.fillStyle = rgba(pCol, 0.24);
-        drawHexPath(cacheCtx, cxArr[city.cell], cyArr[city.cell], corners, 0.95);
+        cacheCtx.beginPath();
+        for (let k = 0; k < arr.length; k++) {
+          const ci = arr[k];
+          traceHexSubpath(cacheCtx, cxArr[ci], cyArr[ci], corners, 0.95);
+        }
         cacheCtx.fill();
       }
     }
 
     // 8. Static map art extension layers (roads, rail, hubs, military, wonders, trade)
     const orderedStatic = [...staticLayers].sort((a, b) => (a.order || 0) - (b.order || 0));
-    const utils = { provinceColor, rgba, drawHexPath };
+    const utils = { provinceColor, rgba, drawHexPath, bounds };
     for (const layer of orderedStatic) {
       const enabled =
         typeof layer.enabled === 'function'
@@ -185,10 +254,10 @@ export function createMapRenderer({ canvas, cam, app }) {
     }
 
     // 9. Strategic resources
-    drawResources(cacheCtx, w, app.data, app.state, zoom);
+    drawResources(cacheCtx, w, app.data, app.state, zoom, bounds);
 
     // 10. Province labels
-    drawProvinceLabels(cacheCtx, w, app.state, zoom);
+    drawProvinceLabels(cacheCtx, w, app.state, zoom, bounds);
 
     cacheCtx.restore();
 
@@ -196,10 +265,8 @@ export function createMapRenderer({ canvas, cam, app }) {
     staticDirty = false;
   }
 
-  function cacheCoversView() {
-    if (!cacheMeta || staticDirty) return false;
-    if (Math.abs(cacheMeta.zoom - cam.zoom) > 1e-4 || cacheMeta.dpr !== cam.dpr) return false;
-    const vb = cam.viewBoundsWorld();
+  function cacheCoversBounds(vb) {
+    if (!cacheMeta) return false;
     return (
       vb.x0 >= cacheMeta.x0 &&
       vb.y0 >= cacheMeta.y0 &&
@@ -208,12 +275,29 @@ export function createMapRenderer({ canvas, cam, app }) {
     );
   }
 
+  function canScaleBlitDuringInteraction(vb) {
+    if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) return false;
+    const zoomRatio = cacheMeta.zoom / cam.zoom;
+    if (zoomRatio < 0.35 || zoomRatio > 2.8) return false;
+    return cacheCoversBounds(vb);
+  }
+
+  function shouldBakeNow() {
+    if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) return true;
+    const vb = cam.viewBoundsWorld();
+    if (cam.isInteracting) {
+      return !canScaleBlitDuringInteraction(vb);
+    }
+    if (Math.abs(cacheMeta.zoom - cam.zoom) > 1e-4) return true;
+    return !cacheCoversBounds(vb);
+  }
+
   function renderNow() {
     drawQueued = false;
     const w = app.w;
     if (!w) return;
 
-    if (!cacheCoversView()) {
+    if (shouldBakeNow()) {
       bakeStaticCache();
     }
 
@@ -233,18 +317,21 @@ export function createMapRenderer({ canvas, cam, app }) {
       ctx.drawImage(cacheCanvas, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     }
 
-    // Soft strategic vignette
-    const grad = ctx.createRadialGradient(
-      canvas.width * 0.5,
-      canvas.height * 0.5,
-      Math.min(canvas.width, canvas.height) * 0.35,
-      canvas.width * 0.5,
-      canvas.height * 0.5,
-      Math.max(canvas.width, canvas.height) * 0.72
-    );
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(4, 11, 20, 0.34)');
-    ctx.fillStyle = grad;
+    // Cached strategic vignette gradient
+    if (!cachedVignette || cachedVignette.w !== canvas.width || cachedVignette.h !== canvas.height) {
+      const grad = ctx.createRadialGradient(
+        canvas.width * 0.5,
+        canvas.height * 0.5,
+        Math.min(canvas.width, canvas.height) * 0.35,
+        canvas.width * 0.5,
+        canvas.height * 0.5,
+        Math.max(canvas.width, canvas.height) * 0.72
+      );
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(4, 11, 20, 0.34)');
+      cachedVignette = { w: canvas.width, h: canvas.height, grad };
+    }
+    ctx.fillStyle = cachedVignette.grad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     lastHitBanners = drawOverlay(ctx, w, cam, app.state, app.data, overlays);
@@ -260,6 +347,20 @@ export function createMapRenderer({ canvas, cam, app }) {
     staticDirty = true;
   }
 
+  function onCameraSettle(zoomed = false) {
+    if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) {
+      staticDirty = true;
+      requestDraw();
+      return;
+    }
+    const vb = cam.viewBoundsWorld();
+    const zoomChanged = zoomed && Math.abs(cacheMeta.zoom - cam.zoom) > 1e-4;
+    if (zoomChanged || !cacheCoversBounds(vb)) {
+      staticDirty = true;
+      requestDraw();
+    }
+  }
+
   function hitBannerAt(sx, sy) {
     for (let i = lastHitBanners.length - 1; i >= 0; i--) {
       const b = lastHitBanners[i];
@@ -273,6 +374,7 @@ export function createMapRenderer({ canvas, cam, app }) {
   return {
     requestDraw,
     invalidateStatic,
+    onCameraSettle,
     renderNow,
     hitBannerAt,
     registerStaticLayer(layer) {

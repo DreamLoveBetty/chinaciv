@@ -1,4 +1,4 @@
-// High-performance 60fps Canvas + SVG Scatter Plot with Linear/Log axes, Pearson r / R^2, and drag-brush selection.
+// High-performance 60fps Canvas + SVG Scatter Plot with Linear/Log axes, Pearson r / R^2, and zero-reflow drag-brush selection.
 import { esc, fin, clamp, scale, ticks, logTicks, pad, extent, robustDomain, pearson, colorScale, RAMPS, CAT_COLORS } from "./util.js";
 import { fmtShort, fmtField } from "./fmt.js";
 
@@ -20,6 +20,7 @@ export function createScatter(host, opts = {}) {
 
   const stage = wrap.querySelector(".adv-scatter-wrap");
   const canvas = stage.querySelector("canvas");
+  const ctx = canvas.getContext("2d");
   const svg = stage.querySelector("svg");
   const corrEl = wrap.querySelector(".st-corr");
   const nEl = wrap.querySelector(".st-n");
@@ -32,22 +33,25 @@ export function createScatter(host, opts = {}) {
     cField: null,
     xLog: false,
     yLog: false,
-    brushed: null, // Set of keys or null
+    brushed: null,
     hotKey: null,
     selKey: null,
   };
 
-  let pts = []; // { row, key, px, py, r, color, vx, vy }
+  let pts = [];
   let sx = null;
   let sy = null;
   let width = 410;
   let height = 280;
-  let brushRect = null; // { x0, y0, x1, y1 } in CSS px
+  let brushRect = null;
+  let brushRectEl = null;
+  let stageRect = null;
   let dragging = null;
+  let brushRaf = 0;
 
   function computeLayout() {
-    const rect = stage.getBoundingClientRect();
-    width = Math.max(280, Math.round(rect.width || 410));
+    stageRect = stage.getBoundingClientRect();
+    width = Math.max(280, Math.round(stageRect.width || 410));
     height = 280;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = width * dpr;
@@ -93,6 +97,7 @@ export function createScatter(host, opts = {}) {
       corrEl.innerHTML = `Pearson r: <b>—</b> · R²: <b>—</b>`;
       nEl.textContent = "有效点: 0";
       svg.innerHTML = "";
+      brushRectEl = null;
       drawCanvas();
       return;
     }
@@ -181,15 +186,6 @@ export function createScatter(host, opts = {}) {
     const xLabel = state.xField?.short || state.xField?.label || "";
     const yLabel = state.yField?.short || state.yField?.label || "";
 
-    let brushSvg = "";
-    if (brushRect) {
-      const bx = Math.min(brushRect.x0, brushRect.x1);
-      const by = Math.min(brushRect.y0, brushRect.y1);
-      const bw = Math.abs(brushRect.x1 - brushRect.x0);
-      const bh = Math.abs(brushRect.y1 - brushRect.y0);
-      brushSvg = `<rect class="adv-brush-rect" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}"/>`;
-    }
-
     svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
     svg.innerHTML = `
       ${gridX}${gridY}
@@ -197,12 +193,30 @@ export function createScatter(host, opts = {}) {
       <line x1="${x0}" y1="${y0}" x2="${x0}" y2="${y1}" stroke="rgba(201,164,92,.4)"/>
       <text x="${(x0 + x1) / 2}" y="${height - 4}" text-anchor="middle" fill="#ecd08e" font-size="10.5">${esc(xLabel)}</text>
       <text x="${x0 + 6}" y="${y0 + 10}" fill="#ecd08e" font-size="10.5">${esc(yLabel)}</text>
-      ${brushSvg}`;
+      <rect class="adv-brush-rect" visibility="hidden" x="0" y="0" width="0" height="0"/>`;
+    brushRectEl = svg.querySelector(".adv-brush-rect");
+    updateBrushRectSvg();
+  }
+
+  function updateBrushRectSvg() {
+    if (!brushRectEl) return;
+    if (!brushRect) {
+      brushRectEl.setAttribute("visibility", "hidden");
+      return;
+    }
+    const bx = Math.min(brushRect.x0, brushRect.x1);
+    const by = Math.min(brushRect.y0, brushRect.y1);
+    const bw = Math.abs(brushRect.x1 - brushRect.x0);
+    const bh = Math.abs(brushRect.y1 - brushRect.y0);
+    brushRectEl.setAttribute("x", bx.toFixed(1));
+    brushRectEl.setAttribute("y", by.toFixed(1));
+    brushRectEl.setAttribute("width", bw.toFixed(1));
+    brushRectEl.setAttribute("height", bh.toFixed(1));
+    brushRectEl.setAttribute("visibility", "visible");
   }
 
   function drawCanvas() {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const ctx = canvas.getContext("2d");
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
 
@@ -211,20 +225,67 @@ export function createScatter(host, opts = {}) {
     const selKey = state.selKey;
     let hotPt = null;
     let selPt = null;
+    const strokePts = pts.length <= 150;
+    const activeAlpha = pts.length > 300 ? 0.78 : 0.9;
 
-    for (const p of pts) {
-      if (p.key === hotKey) hotPt = p;
-      if (p.key === selKey) selPt = p;
-      const inBrush = !hasBrush || state.brushed.has(p.key);
-      ctx.globalAlpha = inBrush ? (pts.length > 300 ? 0.78 : 0.9) : 0.14;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.px, p.py, p.r, 0, Math.PI * 2);
-      ctx.fill();
-      if (inBrush && pts.length <= 150) {
-        ctx.strokeStyle = "rgba(0,0,0,0.55)";
-        ctx.lineWidth = 0.9;
-        ctx.stroke();
+    // Group fills by color+alpha when many dots exist -> reduces 1,302 path fills
+    if (!strokePts) {
+      const dimBuckets = new Map();
+      const litBuckets = new Map();
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i];
+        if (p.key === hotKey) hotPt = p;
+        if (p.key === selKey) selPt = p;
+        const inBrush = !hasBrush || state.brushed.has(p.key);
+        const map = inBrush ? litBuckets : dimBuckets;
+        let arr = map.get(p.color);
+        if (!arr) {
+          arr = [];
+          map.set(p.color, arr);
+        }
+        arr.push(p);
+      }
+
+      if (dimBuckets.size) {
+        ctx.globalAlpha = 0.14;
+        for (const [color, arr] of dimBuckets) {
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          for (let i = 0; i < arr.length; i++) {
+            const p = arr[i];
+            ctx.moveTo(p.px + p.r, p.py);
+            ctx.arc(p.px, p.py, p.r, 0, Math.PI * 2);
+          }
+          ctx.fill();
+        }
+      }
+
+      ctx.globalAlpha = activeAlpha;
+      for (const [color, arr] of litBuckets) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        for (let i = 0; i < arr.length; i++) {
+          const p = arr[i];
+          ctx.moveTo(p.px + p.r, p.py);
+          ctx.arc(p.px, p.py, p.r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+    } else {
+      for (const p of pts) {
+        if (p.key === hotKey) hotPt = p;
+        if (p.key === selKey) selPt = p;
+        const inBrush = !hasBrush || state.brushed.has(p.key);
+        ctx.globalAlpha = inBrush ? activeAlpha : 0.14;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.px, p.py, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        if (inBrush) {
+          ctx.strokeStyle = "rgba(0,0,0,0.55)";
+          ctx.lineWidth = 0.9;
+          ctx.stroke();
+        }
       }
     }
 
@@ -248,7 +309,7 @@ export function createScatter(host, opts = {}) {
 
   function findNearest(x, y) {
     let best = null;
-    let bestD2 = 144; // 12px radius
+    let bestD2 = 144;
     for (let i = pts.length - 1; i >= 0; i--) {
       const p = pts[i];
       const dx = p.px - x;
@@ -263,16 +324,36 @@ export function createScatter(host, opts = {}) {
   }
 
   const localXY = (e) => {
-    const r = stage.getBoundingClientRect();
+    const r = stageRect || (stageRect = stage.getBoundingClientRect());
     return [e.clientX - r.left, e.clientY - r.top];
   };
 
+  function flushLiveBrush() {
+    brushRaf = 0;
+    if (!brushRect) return;
+    const bx0 = Math.min(brushRect.x0, brushRect.x1);
+    const bx1 = Math.max(brushRect.x0, brushRect.x1);
+    const by0 = Math.min(brushRect.y0, brushRect.y1);
+    const by1 = Math.max(brushRect.y0, brushRect.y1);
+    const set = new Set();
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.px >= bx0 && p.px <= bx1 && p.py >= by0 && p.py <= by1) set.add(p.key);
+    }
+    state.brushed = set;
+    updateBrushRectSvg();
+    drawCanvas();
+    opts.onBrush?.(set, true);
+  }
+
   stage.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
+    stageRect = stage.getBoundingClientRect();
     const [x, y] = localXY(e);
     stage.setPointerCapture(e.pointerId);
     dragging = { x0: clamp(x, PAD.l, width - PAD.r), y0: clamp(y, PAD.t, height - PAD.b), moved: false };
     brushRect = null;
+    updateBrushRectSvg();
   });
 
   stage.addEventListener("pointermove", (e) => {
@@ -283,20 +364,7 @@ export function createScatter(host, opts = {}) {
       if (Math.hypot(cx - dragging.x0, cy - dragging.y0) > 5) dragging.moved = true;
       if (dragging.moved) {
         brushRect = { x0: dragging.x0, y0: dragging.y0, x1: cx, y1: cy };
-        const bx0 = Math.min(brushRect.x0, brushRect.x1);
-        const bx1 = Math.max(brushRect.x0, brushRect.x1);
-        const by0 = Math.min(brushRect.y0, brushRect.y1);
-        const by1 = Math.max(brushRect.y0, brushRect.y1);
-        const set = new Set();
-        for (const p of pts) {
-          if (p.px >= bx0 && p.px <= bx1 && p.py >= by0 && p.py <= by1) set.add(p.key);
-        }
-        state.brushed = set;
-        drawCanvas();
-        if (sx && sy) {
-          renderSvgAxes(sx.domain, sy.domain);
-        }
-        opts.onBrush?.(set, true);
+        if (!brushRaf) brushRaf = requestAnimationFrame(flushLiveBrush);
       }
       return;
     }
@@ -315,10 +383,15 @@ export function createScatter(host, opts = {}) {
     if (!dragging) return;
     const wasMoved = dragging.moved;
     dragging = null;
+    if (brushRaf) {
+      cancelAnimationFrame(brushRaf);
+      brushRaf = 0;
+    }
     if (wasMoved) {
+      if (brushRect) flushLiveBrush();
       const set = state.brushed && state.brushed.size ? state.brushed : null;
       if (!set) brushRect = null;
-      if (sx && sy) renderSvgAxes(sx.domain, sy.domain);
+      updateBrushRectSvg();
       drawCanvas();
       opts.onBrush?.(set, false);
       return;
@@ -345,7 +418,7 @@ export function createScatter(host, opts = {}) {
   function clearBrush() {
     brushRect = null;
     state.brushed = null;
-    if (sx && sy) renderSvgAxes(sx.domain, sy.domain);
+    updateBrushRectSvg();
     drawCanvas();
   }
 
@@ -376,6 +449,7 @@ export function createScatter(host, opts = {}) {
       return `<b>${esc(row.full || row.name)}</b>${row.sub ? ` <span class="sub">(${esc(row.sub)})</span>` : ""}<br>${esc(state.xField.label)}：<b>${esc(xStr)}</b><br>${esc(state.yField.label)}：<b>${esc(yStr)}</b>`;
     },
     destroy() {
+      if (brushRaf) cancelAnimationFrame(brushRaf);
       ro.disconnect();
     },
   };

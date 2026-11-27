@@ -1,5 +1,4 @@
 import {
-  COVER_LABELS,
   DISTRICT_META,
   cellXY,
   escHtml,
@@ -12,26 +11,47 @@ import {
 
 /**
  * Map overlay for Civilization-style City & Province View:
- * - Dims everything outside the active footprint
- * - Draws a glowing provincial-color border around footprint edges
- * - Shows land use + estimated population inside hexes when zoomed in
- * - Renders Civ District Hex Plaques around the city center (including dual Campuses for Beijing)
- * - Highlights local wonders, power plants, mines, ports, airports & military bases + ping ripples
- * - Provides rich hex & plaque hover tooltips
+ * - Precomputes boundary segments & hex metadata once in setTarget()
+ * - Viewport-culls & batches internal hex borders and evenodd backdrop cutouts
+ * - Replaces expensive shadowBlur passes with crisp multi-pass translucent strokes
+ * - Guarded hover tooltip with zero-reflow moveTooltip on sub-hex motion
  */
 export function createCityViewMapLayer(app) {
   const state = {
     active: false,
     entity: null,
     footprint: null,
+    boundarySegments: [],
+    cellCoords: [], // [{ cell, x, y, shortCover, popTxt }]
+    plaqueCells: new Map(),
+    assetCells: new Map(),
     plaques: [],
     assets: [],
     hoveredDistrictIdx: -1,
     hoveredAssetUid: null,
-    ping: null, // { x, y, startMs, color, label }
+    ping: null,
     lastTooltipCell: -1,
     rafId: 0,
   };
+
+  function traceBoundarySegments(cellSet, grid) {
+    const dirForCornerEdge = [1, 2, 3, 4, 5, 0];
+    const segments = [];
+    for (const cell of cellSet) {
+      const p = cellXY(cell, grid);
+      const corners = hexCornerPoints(p.x, p.y, grid.R);
+      const nbrs = getNeighborCells(cell, grid);
+      for (let k = 0; k < 6; k++) {
+        const nb = nbrs[dirForCornerEdge[k]];
+        if (nb < 0 || !cellSet.has(nb)) {
+          const a = corners[k];
+          const b = corners[(k + 1) % 6];
+          segments.push(a[0], a[1], b[0], b[1]);
+        }
+      }
+    }
+    return new Float32Array(segments);
+  }
 
   function setTarget(entity, footprint, plaques, assets) {
     state.active = Boolean(entity && footprint);
@@ -41,6 +61,37 @@ export function createCityViewMapLayer(app) {
     state.assets = assets || [];
     state.hoveredDistrictIdx = -1;
     state.hoveredAssetUid = null;
+    state.lastTooltipCell = -1;
+
+    state.plaqueCells = new Map();
+    for (const p of state.plaques) {
+      if (p.cell >= 0 && !state.plaqueCells.has(p.cell)) state.plaqueCells.set(p.cell, p);
+    }
+    state.assetCells = new Map();
+    for (const a of state.assets) {
+      if (a.cell >= 0 && !state.assetCells.has(a.cell)) state.assetCells.set(a.cell, a);
+    }
+
+    const w = app?.w;
+    if (state.active && footprint && w) {
+      const grid = getGridMetrics(w);
+      state.boundarySegments = traceBoundarySegments(footprint.cells, grid);
+      state.cellCoords = footprint.cellList.map((cell) => {
+        const pt = cellXY(cell, grid);
+        const info = inspectHexCell(cell, app);
+        return {
+          cell,
+          x: pt.x,
+          y: pt.y,
+          shortCover: info ? (info.coverName || "").split("/")[0].slice(0, 4) : "",
+          popTxt: info && info.estPop != null ? fmtPop(info.estPop) : "",
+        };
+      });
+    } else {
+      state.boundarySegments = [];
+      state.cellCoords = [];
+    }
+
     app.requestDraw?.();
   }
 
@@ -48,11 +99,16 @@ export function createCityViewMapLayer(app) {
     state.active = false;
     state.entity = null;
     state.footprint = null;
+    state.boundarySegments = [];
+    state.cellCoords = [];
+    state.plaqueCells = new Map();
+    state.assetCells = new Map();
     state.plaques = [];
     state.assets = [];
     state.ping = null;
     state.hoveredDistrictIdx = -1;
     state.hoveredAssetUid = null;
+    state.lastTooltipCell = -1;
     if (state.rafId) {
       cancelAnimationFrame(state.rafId);
       state.rafId = 0;
@@ -92,7 +148,6 @@ export function createCityViewMapLayer(app) {
     app.requestDraw?.();
   }
 
-  // Resolve world<->screen conversion compatibly with fe-engine's camera & overlay conventions
   function getCameraScale(cam, canvasWidth, canvasHeight) {
     const k = Number(cam?.k ?? cam?.zoom ?? cam?.scale ?? 1);
     const cx = Number(cam?.x ?? cam?.cx ?? 0);
@@ -108,11 +163,20 @@ export function createCityViewMapLayer(app) {
     const cssH = Number(cam.height || (canvas ? canvas.height / dpr : 900));
 
     if (typeof cam.worldToScreen === "function") {
+      const c = typeof cam.viewportCenterScreen === "function"
+        ? cam.viewportCenterScreen()
+        : { sx: cssW * 0.5, sy: cssH * 0.5 };
+      const k = Number(cam.zoom || 1);
+      const cx = Number(cam.x || 0);
+      const cy = Number(cam.y || 0);
       return {
-        scale: Number(cam.zoom || 1),
+        scale: k,
         cssW,
         cssH,
-        toScreen: (wx, wy) => cam.worldToScreen(wx, wy),
+        toScreen: (wx, wy) => ({
+          x: c.sx + (wx - cx) * k,
+          y: c.sy + (wy - cy) * k,
+        }),
       };
     }
 
@@ -126,34 +190,6 @@ export function createCityViewMapLayer(app) {
         y: (wy - cy) * k + cssH / 2,
       }),
     };
-  }
-
-  function traceBoundarySegments(cellSet, grid) {
-    // Edge k connects corner k and corner (k+1)%6.
-    // Match pointy-top neighbor directions (E, SE, SW, W, NW, NE) to corners:
-    // corners k=0..5 have angles 30, 90, 150, 210, 270, 330 deg
-    // Edge 0 (30->90): SE (dir 1)
-    // Edge 1 (90->150): SW (dir 2)
-    // Edge 2 (150->210): W (dir 3)
-    // Edge 3 (210->270): NW (dir 4)
-    // Edge 4 (270->330): NE (dir 5)
-    // Edge 5 (330->30): E (dir 0)
-    const dirForCornerEdge = [1, 2, 3, 4, 5, 0];
-    const segments = [];
-    for (const cell of cellSet) {
-      const p = cellXY(cell, grid);
-      const corners = hexCornerPoints(p.x, p.y, grid.R);
-      const nbrs = getNeighborCells(cell, grid);
-      for (let k = 0; k < 6; k++) {
-        const nb = nbrs[dirForCornerEdge[k]];
-        if (nb < 0 || !cellSet.has(nb)) {
-          const a = corners[k];
-          const b = corners[(k + 1) % 6];
-          segments.push([a[0], a[1], b[0], b[1]]);
-        }
-      }
-    }
-    return segments;
   }
 
   function drawRoundedRect(ctx, x, y, w, h, r) {
@@ -173,21 +209,31 @@ export function createCityViewMapLayer(app) {
     const grid = getGridMetrics(w);
     const proj = makeProjector(ctx, w, camArg);
     const screenHexR = grid.R * proj.scale;
-    const fp = state.footprint;
+    const corners = w.corners || hexCornerPoints(0, 0, grid.R);
+    const padPx = screenHexR * 1.5;
 
     ctx.save();
 
-    // 1. Dim everything outside the active footprint using evenodd clipping
+    // Collect viewport-visible footprint cells once for both backdrop cutout & internal hex grid
+    const visible = [];
+    for (let i = 0; i < state.cellCoords.length; i++) {
+      const item = state.cellCoords[i];
+      const sc = proj.toScreen(item.x, item.y);
+      if (sc.x < -padPx || sc.x > proj.cssW + padPx || sc.y < -padPx || sc.y > proj.cssH + padPx) {
+        continue;
+      }
+      visible.push({ item, sx: sc.x, sy: sc.y });
+    }
+
+    // 1. Dim everything outside the active footprint using viewport-culled evenodd clipping
     ctx.save();
     ctx.beginPath();
     ctx.rect(-20, -20, proj.cssW + 40, proj.cssH + 40);
-    for (const cell of fp.cellList) {
-      const pt = cellXY(cell, grid);
-      const corners = hexCornerPoints(pt.x, pt.y, grid.R);
-      for (let k = 0; k < 6; k++) {
-        const sp = proj.toScreen(corners[k][0], corners[k][1]);
-        if (k === 0) ctx.moveTo(sp.x, sp.y);
-        else ctx.lineTo(sp.x, sp.y);
+    for (let i = 0; i < visible.length; i++) {
+      const { sx, sy } = visible[i];
+      ctx.moveTo(sx + corners[0][0] * proj.scale, sy + corners[0][1] * proj.scale);
+      for (let k = 1; k < 6; k++) {
+        ctx.lineTo(sx + corners[k][0] * proj.scale, sy + corners[k][1] * proj.scale);
       }
       ctx.closePath();
     }
@@ -196,67 +242,74 @@ export function createCityViewMapLayer(app) {
     ctx.fillRect(0, 0, proj.cssW, proj.cssH);
     ctx.restore();
 
-    // 2. Footprint internal subtle highlights + land use & population labels when zoomed in
+    // 2. Footprint internal subtle highlights (batched) + land use & population labels when zoomed in
     const showHexDetail = screenHexR >= 22;
     const showHexMicroText = screenHexR >= 30;
-    for (const cell of fp.cellList) {
-      const pt = cellXY(cell, grid);
-      const sc = proj.toScreen(pt.x, pt.y);
-      if (sc.x < -60 || sc.x > proj.cssW + 60 || sc.y < -60 || sc.y > proj.cssH + 60) continue;
-
-      if (showHexDetail) {
-        const corners = hexCornerPoints(pt.x, pt.y, grid.R);
-        ctx.beginPath();
-        for (let k = 0; k < 6; k++) {
-          const sp = proj.toScreen(corners[k][0], corners[k][1]);
-          if (k === 0) ctx.moveTo(sp.x, sp.y);
-          else ctx.lineTo(sp.x, sp.y);
+    if (showHexDetail && visible.length) {
+      ctx.beginPath();
+      for (let i = 0; i < visible.length; i++) {
+        const { sx, sy } = visible[i];
+        ctx.moveTo(sx + corners[0][0] * proj.scale, sy + corners[0][1] * proj.scale);
+        for (let k = 1; k < 6; k++) {
+          ctx.lineTo(sx + corners[k][0] * proj.scale, sy + corners[k][1] * proj.scale);
         }
         ctx.closePath();
-        ctx.strokeStyle = "rgba(236, 208, 142, 0.2)";
-        ctx.lineWidth = 1;
-        ctx.stroke();
+      }
+      ctx.strokeStyle = "rgba(236, 208, 142, 0.2)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
-        if (showHexMicroText) {
-          const info = inspectHexCell(cell, app);
-          if (info) {
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.font = "500 9.5px system-ui, -apple-system, sans-serif";
-            ctx.fillStyle = "rgba(239, 228, 198, 0.88)";
-            const shortCover = (info.coverName || "").split("/")[0].slice(0, 4);
-            ctx.fillText(shortCover, sc.x, sc.y - 6);
-            if (info.estPop != null) {
-              ctx.font = "600 9.5px system-ui, -apple-system, sans-serif";
-              ctx.fillStyle = "#ecd08e";
-              ctx.fillText(fmtPop(info.estPop), sc.x, sc.y + 7);
-            }
-          }
+      if (showHexMicroText) {
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "500 9.5px system-ui, -apple-system, sans-serif";
+        ctx.fillStyle = "rgba(239, 228, 198, 0.88)";
+        for (let i = 0; i < visible.length; i++) {
+          const { item, sx, sy } = visible[i];
+          if (item.shortCover) ctx.fillText(item.shortCover, sx, sy - 6);
+        }
+        ctx.font = "600 9.5px system-ui, -apple-system, sans-serif";
+        ctx.fillStyle = "#ecd08e";
+        for (let i = 0; i < visible.length; i++) {
+          const { item, sx, sy } = visible[i];
+          if (item.popTxt) ctx.fillText(item.popTxt, sx, sy + 7);
         }
       }
     }
 
-    // 3. Glowing provincial-color outer border
+    // 3. Glowing provincial-color outer border (precomputed segments + fast multi-stroke aura instead of shadowBlur)
     const borderColor = state.entity?.color || "#ecd08e";
-    const segments = traceBoundarySegments(fp.cells, grid);
-    if (segments.length) {
+    const segs = state.boundarySegments;
+    if (segs && segs.length) {
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.beginPath();
-      for (const [x1, y1, x2, y2] of segments) {
-        const a = proj.toScreen(x1, y1);
-        const b = proj.toScreen(x2, y2);
+      for (let k = 0; k < segs.length; k += 4) {
+        const a = proj.toScreen(segs[k], segs[k + 1]);
+        const b = proj.toScreen(segs[k + 2], segs[k + 3]);
+        if (
+          (a.x < -30 && b.x < -30) ||
+          (a.x > proj.cssW + 30 && b.x > proj.cssW + 30) ||
+          (a.y < -30 && b.y < -30) ||
+          (a.y > proj.cssH + 30 && b.y > proj.cssH + 30)
+        ) {
+          continue;
+        }
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
       }
-      ctx.shadowColor = borderColor;
-      ctx.shadowBlur = 14;
+      const coreW = Math.max(3.2, Math.min(5.5, screenHexR * 0.16));
+      ctx.globalAlpha = 0.25;
       ctx.strokeStyle = borderColor;
-      ctx.lineWidth = Math.max(3.5, Math.min(6, screenHexR * 0.16));
+      ctx.lineWidth = coreW + 6;
       ctx.stroke();
 
-      ctx.shadowBlur = 0;
+      ctx.globalAlpha = 0.92;
+      ctx.lineWidth = coreW;
+      ctx.stroke();
+
+      ctx.globalAlpha = 1;
       ctx.strokeStyle = "#fff4d2";
       ctx.lineWidth = 1.4;
       ctx.stroke();
@@ -334,7 +387,7 @@ export function createCityViewMapLayer(app) {
       const dMeta = p.meta || DISTRICT_META.campus;
       const corners = hexCornerPoints(p.x, p.y, grid.R * 0.92);
 
-      // Tether line from city center to district plaque
+      // Tether line
       ctx.save();
       ctx.beginPath();
       ctx.setLineDash([4, 3]);
@@ -361,7 +414,7 @@ export function createCityViewMapLayer(app) {
       ctx.stroke();
       ctx.restore();
 
-      // District Hex Emblem Crest
+      // District Hex Emblem Crest (fast halo ring instead of shadowBlur)
       const badgeR = isHovered ? 16 : 13.5;
       ctx.save();
       ctx.beginPath();
@@ -375,12 +428,14 @@ export function createCityViewMapLayer(app) {
       ctx.closePath();
       ctx.fillStyle = dMeta.bg;
       ctx.fill();
+      ctx.globalAlpha = isHovered ? 0.35 : 0.2;
+      ctx.lineWidth = isHovered ? 6 : 4;
+      ctx.strokeStyle = dMeta.color;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
       ctx.lineWidth = isHovered ? 2.4 : 1.8;
       ctx.strokeStyle = isHovered ? "#fff7d6" : dMeta.color;
-      ctx.shadowColor = dMeta.color;
-      ctx.shadowBlur = isHovered ? 14 : 7;
       ctx.stroke();
-      ctx.shadowBlur = 0;
 
       ctx.font = `${isHovered ? 15 : 13}px system-ui, Apple Color Emoji, sans-serif`;
       ctx.textAlign = "center";
@@ -418,7 +473,7 @@ export function createCityViewMapLayer(app) {
       ctx.restore();
     }
 
-    // 6. Animated Ping Ring when user hovers/clicks a Resource, Wonder, or District
+    // 6. Animated Ping Ring
     if (state.ping) {
       const elapsed = performance.now() - state.ping.startMs;
       const t = (elapsed % 900) / 900;
@@ -446,15 +501,21 @@ export function createCityViewMapLayer(app) {
 
   function handleHoverCell(cellIdx, pointerPos) {
     if (!state.active || !state.footprint || cellIdx == null || cellIdx < 0) {
-      if (state.lastTooltipCell !== -1) {
-        state.lastTooltipCell = -1;
-      }
+      if (state.lastTooltipCell !== -1) state.lastTooltipCell = -1;
       return;
     }
 
+    if (cellIdx === state.lastTooltipCell) {
+      if (pointerPos && typeof app.ui?.moveTooltip === "function") {
+        app.ui.moveTooltip(pointerPos.x, pointerPos.y);
+      }
+      return;
+    }
+    state.lastTooltipCell = cellIdx;
+
     const inFootprint = state.footprint.cells.has(cellIdx);
-    const plaque = state.plaques.find((p) => p.cell === cellIdx);
-    const asset = state.assets.find((a) => a.cell === cellIdx);
+    const plaque = state.plaqueCells.get(cellIdx);
+    const asset = state.assetCells.get(cellIdx);
     if (!inFootprint && !plaque && !asset) return;
 
     const info = inspectHexCell(cellIdx, app);
@@ -480,13 +541,13 @@ export function createCityViewMapLayer(app) {
 
   function hitTestMapClick(wx, wy, cellIdx) {
     if (!state.active) return null;
-    const plaque = state.plaques.find((p) => p.cell === cellIdx) ||
+    const plaque = state.plaqueCells.get(cellIdx) ||
       state.plaques.find((p) => Number.isFinite(wx) && Math.hypot(p.x - wx, p.y - wy) < 15);
     if (plaque) {
       pingAt(plaque.x, plaque.y, plaque.meta?.color || "#ecd08e", plaque.district?.name);
       return { kind: "district", index: plaque.index, plaque };
     }
-    const asset = state.assets.find((a) => a.cell === cellIdx) ||
+    const asset = state.assetCells.get(cellIdx) ||
       state.assets.find((a) => Number.isFinite(wx) && Number.isFinite(a.x) && Math.hypot(a.x - wx, a.y - wy) < 12);
     if (asset) {
       pingAt(asset.x, asset.y, "#ecd08e", asset.name);

@@ -1,4 +1,4 @@
-// Provincial map labels rendered in serif typography with subtle halo
+// Provincial map labels rendered in serif typography with subtle halo & viewport culling
 
 const SHORT_PROV = {
   北京市: '北京', 天津市: '天津', 河北省: '河北', 山西省: '山西', 内蒙古自治区: '内蒙古',
@@ -10,9 +10,15 @@ const SHORT_PROV = {
   新疆维吾尔自治区: '新疆', 台湾省: '台湾', 香港特别行政区: '香港', 澳门特别行政区: '澳门',
 };
 
-export function drawProvinceLabels(ctx, w, state, zoom) {
+export function drawProvinceLabels(ctx, w, state, zoom, bounds = null) {
   const states = state.states && state.states.length ? state.states : w.states || [];
   if (!states.length) return;
+
+  const pad = 160 / Math.max(0.2, zoom);
+  const x0 = bounds ? bounds.x0 - pad : -Infinity;
+  const y0 = bounds ? bounds.y0 - pad : -Infinity;
+  const x1 = bounds ? bounds.x1 + pad : Infinity;
+  const y1 = bounds ? bounds.y1 + pad : Infinity;
 
   ctx.save();
   ctx.textAlign = 'center';
@@ -25,24 +31,23 @@ export function drawProvinceLabels(ctx, w, state, zoom) {
   ctx.lineJoin = 'round';
   ctx.lineWidth = worldSize * 0.26;
   ctx.strokeStyle = 'rgba(10, 18, 28, 0.85)';
+  ctx.fillStyle = state.lens ? 'rgba(247, 238, 212, 0.88)' : 'rgba(239, 224, 182, 0.78)';
 
   for (let i = 0; i < states.length; i++) {
     const st = states[i];
     const sb = w.stateBounds[i];
     if (!sb || sb.count === 0) continue;
 
-    // Tiny SARs / municipalities: avoid cluttering national view with duplicate label if city banner already sits right there
     const name = st.name || '';
     const isTiny = sb.count <= 4;
     if (isTiny && zoom < 0.55) continue;
 
-    // Offset province label slightly above center so it avoids provincial capital banner
     const lx = sb.labelX;
     const ly = sb.labelY - (zoom < 0.45 ? 18 / zoom : 26 / zoom);
+    if (lx < x0 || lx > x1 || ly < y0 || ly > y1) continue;
 
     const txt = zoom >= 0.55 ? (st.name || SHORT_PROV[name] || name) : (SHORT_PROV[name] || st.abbr || name);
     ctx.strokeText(txt, lx, ly);
-    ctx.fillStyle = state.lens ? 'rgba(247, 238, 212, 0.88)' : 'rgba(239, 224, 182, 0.78)';
     ctx.fillText(txt, lx, ly);
   }
 

@@ -79,7 +79,6 @@ export async function install(app) {
     mapLayer.handleHoverCell(cell, pos);
   };
   app.on?.("hover", onHover);
-  app.on?.("hoverCell", onHover);
 
   // Check URL hash on startup & hashchange (#city=<id>&view=city / #province=<code>&view=city)
   const syncFromHash = (skipIfTargetedBoot = false) => {

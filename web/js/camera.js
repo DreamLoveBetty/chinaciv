@@ -1,4 +1,4 @@
-// 2D World Camera with smooth animation, cursor-anchored zoom, inertia & dock-aware framing
+// 2D World Camera with smooth animation, cursor-anchored zoom, interaction state & dock-aware framing
 
 export class Camera {
   constructor(canvas, opts = {}) {
@@ -15,9 +15,11 @@ export class Camera {
 
     this.dockLeft = 0;
     this.dockRight = 0;
+    this.isInteracting = false;
 
     this._anim = null;
     this._settleTimer = null;
+    this._pendingZoomSettle = false;
     this._onFrame = opts.onFrame || (() => {});
     this._onSettle = opts.onSettle || (() => {});
   }
@@ -87,10 +89,11 @@ export class Camera {
 
   panByScreen(dx, dy) {
     this._anim = null;
+    this.isInteracting = true;
     this.x -= dx / this.zoom;
     this.y -= dy / this.zoom;
     this._onFrame();
-    this._scheduleSettle(90);
+    this._scheduleSettle(110, false);
   }
 
   zoomAtScreen(sx, sy, factor, instant = false) {
@@ -98,23 +101,29 @@ export class Camera {
     const before = this.screenToWorld(sx, sy);
     const nextZoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoom * factor));
     if (Math.abs(nextZoom - this.zoom) < 1e-6) return;
+    this.isInteracting = !instant;
     this.zoom = nextZoom;
     const c = this.viewportCenterScreen();
     this.x = before.x - (sx - c.sx) / this.zoom;
     this.y = before.y - (sy - c.sy) / this.zoom;
     this._onFrame();
-    this._scheduleSettle(instant ? 0 : 120);
+    this._scheduleSettle(instant ? 0 : 140, true);
   }
 
   animateTo(targetX, targetY, targetZoom, opts = {}) {
     const clampedZoom = Math.max(this.minZoom, Math.min(this.maxZoom, targetZoom));
+    clearTimeout(this._settleTimer);
+    this._pendingZoomSettle = false;
+
     if (opts.instant || opts.duration === 0) {
       this._anim = null;
+      this.isInteracting = false;
+      const zoomed = Math.abs(clampedZoom - this.zoom) > 1e-4;
       this.x = targetX;
       this.y = targetY;
       this.zoom = clampedZoom;
       this._onFrame();
-      this._onSettle();
+      this._onSettle({ zoomed });
       return;
     }
 
@@ -122,8 +131,10 @@ export class Camera {
     const startX = this.x;
     const startY = this.y;
     const startZ = this.zoom;
+    const zoomed = Math.abs(clampedZoom - startZ) > 1e-4;
     const t0 = performance.now();
 
+    this.isInteracting = true;
     this._anim = {
       t0,
       duration,
@@ -148,7 +159,8 @@ export class Camera {
         requestAnimationFrame(tick);
       } else {
         this._anim = null;
-        this._onSettle();
+        this.isInteracting = false;
+        this._onSettle({ zoomed });
       }
     };
     requestAnimationFrame(tick);
@@ -169,14 +181,21 @@ export class Camera {
     this.animateTo(cx, cy, targetZoom, opts);
   }
 
-  _scheduleSettle(ms) {
+  _scheduleSettle(ms, zoomed = false) {
     clearTimeout(this._settleTimer);
+    if (zoomed) this._pendingZoomSettle = true;
     if (ms <= 0) {
-      this._onSettle();
+      this.isInteracting = false;
+      const z = this._pendingZoomSettle;
+      this._pendingZoomSettle = false;
+      this._onSettle({ zoomed: z });
       return;
     }
     this._settleTimer = setTimeout(() => {
-      this._onSettle();
+      this.isInteracting = false;
+      const z = this._pendingZoomSettle;
+      this._pendingZoomSettle = false;
+      this._onSettle({ zoomed: z });
     }, ms);
   }
 }

@@ -30,15 +30,18 @@ async function boot() {
   let renderer = null;
   let minimap = null;
   let toastTimer = null;
+  let canvasRect = canvas.getBoundingClientRect();
 
   const rendererProxy = {
     target: null,
     requestDraw() {
       this.target?.requestDraw();
-      minimap?.draw();
     },
     invalidateStatic() {
       this.target?.invalidateStatic();
+    },
+    onCameraSettle(zoomed) {
+      this.target?.onCameraSettle?.(zoomed);
     },
     registerStaticLayer(layer) {
       return this.target?.registerStaticLayer(layer);
@@ -56,9 +59,8 @@ async function boot() {
       renderer?.requestDraw();
       minimap?.draw();
     },
-    onSettle: () => {
-      renderer?.invalidateStatic();
-      renderer?.requestDraw();
+    onSettle: ({ zoomed } = {}) => {
+      renderer?.onCameraSettle(Boolean(zoomed));
       minimap?.draw();
     },
   });
@@ -85,6 +87,7 @@ async function boot() {
         cam.setDocks(cam.dockLeft, 0);
       }
       renderer.requestDraw();
+      minimap?.draw();
       return null;
     }
 
@@ -95,6 +98,7 @@ async function boot() {
     if (side === 'left') cam.setDocks(wNum, cam.dockRight);
     else cam.setDocks(cam.dockLeft, wNum);
     renderer.requestDraw();
+    minimap?.draw();
     return target;
   };
 
@@ -133,15 +137,19 @@ async function boot() {
   initLenses(app);
   minimap = initMinimap(app);
 
-  // Resize Handling
+  // Resize Handling (keeps cached canvasRect fresh with zero pointermove reflows)
   const updateSize = () => {
     const rect = viewportEl.getBoundingClientRect();
     cam.resize(rect.width, rect.height);
+    canvasRect = canvas.getBoundingClientRect();
     renderer.invalidateStatic();
     renderer.requestDraw();
     minimap?.draw();
   };
   new ResizeObserver(updateSize).observe(viewportEl);
+  window.addEventListener('resize', () => {
+    canvasRect = canvas.getBoundingClientRect();
+  }, { passive: true });
   updateSize();
 
   // Load Core Datasets
@@ -152,7 +160,7 @@ async function boot() {
 
   try {
     setProgress(25, '正在加载中国25公里六边形世界网格…');
-    const [rawWorld, rawGeoLookup, rawNation, rawStates, rawCities, rawLenses] = await Promise.all([
+    const [rawWorld, rawGeoLookup, rawNation, rawStates, rawCities] = await Promise.all([
       app.loadData('world'),
       app.loadData('geo_lookup').catch(() => null),
       app.loadData('nation').catch(() => null),
@@ -164,7 +172,6 @@ async function boot() {
     setProgress(70, '正在构建中国省县空间索引与地形晕渲…');
     app.w = prepareWorld(rawWorld, rawGeoLookup);
 
-    // Re-normalize cities & states against prepared world
     if (Array.isArray(rawCities)) {
       for (const c of rawCities) {
         if ((c.cell == null || c.cell < 0) && c.x != null && c.y != null) c.cell = app.w.cellAt(c.x, c.y);
@@ -196,10 +203,8 @@ async function boot() {
     app.fitChina({ instant: true });
     setProgress(90, '正在加载扩展模块与地图图层…');
 
-    // Load Extensions (layers, cityView, advisors)
     await loadExtensions(app);
 
-    // Preload remaining datasets in background so lenses, search, and layers populate seamlessly
     Promise.allSettled([
       app.loadData('districts'),
       app.loadData('counties'),
@@ -214,7 +219,6 @@ async function boot() {
       renderer.requestDraw();
     });
 
-    // Apply initial URL hash parameters
     const h = app.hash.all();
     if (h.res === '0') app.setShowResources(false);
     if (h.lens) {
@@ -228,7 +232,6 @@ async function boot() {
       setTimeout(() => bootOverlay.classList.add('hidden'), 280);
     }, 80);
 
-    // Defer deep links into CityView / Advisor after extensions settle
     if (h.city) {
       app.selectCity(h.city, { source: 'hash', openCityView: h.view === 'city' });
     } else if (h.province) {
@@ -246,9 +249,13 @@ async function boot() {
   let didDrag = false;
   const activeTouches = new Map();
   let lastPinchDist = null;
+  let prevBannerCity = null;
+  let lastTipKey = '';
+  let lastHoverPointerClass = false;
 
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+    canvasRect = canvas.getBoundingClientRect();
     canvas.setPointerCapture(e.pointerId);
     activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -266,9 +273,8 @@ async function boot() {
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
+    const sx = e.clientX - canvasRect.left;
+    const sy = e.clientY - canvasRect.top;
 
     if (activeTouches.has(e.pointerId)) {
       activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -278,8 +284,8 @@ async function boot() {
       const pts = [...activeTouches.values()];
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       if (lastPinchDist && dist > 0) {
-        const midX = (pts[0].x + pts[1].x) * 0.5 - rect.left;
-        const midY = (pts[0].y + pts[1].y) * 0.5 - rect.top;
+        const midX = (pts[0].x + pts[1].x) * 0.5 - canvasRect.left;
+        const midY = (pts[0].y + pts[1].y) * 0.5 - canvasRect.top;
         cam.zoomAtScreen(midX, midY, dist / lastPinchDist);
       }
       lastPinchDist = dist;
@@ -299,41 +305,55 @@ async function boot() {
       return;
     }
 
-    // Hover hit test
     if (!app.w) return;
     const bannerCity = renderer.hitBannerAt(sx, sy);
-    canvas.classList.toggle('pointer', Boolean(bannerCity));
+    const wantPointer = Boolean(bannerCity);
+    if (wantPointer !== lastHoverPointerClass) {
+      lastHoverPointerClass = wantPointer;
+      canvas.classList.toggle('pointer', wantPointer);
+    }
 
     const worldPt = cam.screenToWorld(sx, sy);
     const cell = app.w.cellAt(worldPt.x, worldPt.y);
     const prevCell = app.state.hoverCell;
-    if (cell !== prevCell) {
+    const cellChanged = cell !== prevCell;
+
+    if (cellChanged) {
       app.state.hoverCell = cell;
       renderer.requestDraw();
     }
 
-    const html = buildCellTooltipHtml(app, cell);
-    if (html) app.ui.showHtmlTooltip(e.clientX, e.clientY, html);
-    else app.ui.hideTooltip();
+    const tipKey = `${cell}:${app.state.lens?.id || ''}:${app.state.layers.wonders ? 1 : 0}:${app.state.showResources ? 1 : 0}`;
+    if (tipKey !== lastTipKey) {
+      lastTipKey = tipKey;
+      const html = buildCellTooltipHtml(app, cell);
+      if (html) app.ui.showHtmlTooltip(e.clientX, e.clientY, html);
+      else app.ui.hideTooltip();
+    } else {
+      app.ui.moveTooltip(e.clientX, e.clientY);
+    }
 
-    const ow = cell >= 0 ? app.w.owner[cell] : -1;
-    const ctIdx = cell >= 0 ? app.w.county?.[cell] ?? -1 : -1;
-    const hoverPayload = {
-      cell,
-      prevCell,
-      wx: worldPt.x,
-      wy: worldPt.y,
-      sx,
-      sy,
-      pos: { x: e.clientX, y: e.clientY },
-      clientX: e.clientX,
-      clientY: e.clientY,
-      state: ow >= 0 ? app.state.states[ow] : null,
-      county: ctIdx >= 0 ? app.data.counties?.rows?.[ctIdx] || app.w.counties?.[ctIdx] : null,
-      city: bannerCity,
-    };
-    app.emit('hover', hoverPayload);
-    app.emit('hoverCell', hoverPayload);
+    if (cellChanged || bannerCity !== prevBannerCity) {
+      prevBannerCity = bannerCity;
+      const ow = cell >= 0 ? app.w.owner[cell] : -1;
+      const ctIdx = cell >= 0 ? app.w.county?.[cell] ?? -1 : -1;
+      const hoverPayload = {
+        cell,
+        prevCell,
+        wx: worldPt.x,
+        wy: worldPt.y,
+        sx,
+        sy,
+        pos: { x: e.clientX, y: e.clientY },
+        clientX: e.clientX,
+        clientY: e.clientY,
+        state: ow >= 0 ? app.state.states[ow] : null,
+        county: ctIdx >= 0 ? app.data.counties?.rows?.[ctIdx] || app.w.counties?.[ctIdx] : null,
+        city: bannerCity,
+      };
+      app.emit('hover', hoverPayload);
+      if (cellChanged) app.emit('hoverCell', hoverPayload);
+    }
   });
 
   const endPointer = (e) => {
@@ -344,11 +364,9 @@ async function boot() {
     canvas.classList.remove('dragging');
 
     if (!didDrag && app.w) {
-      const rect = canvas.getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
+      const sx = e.clientX - canvasRect.left;
+      const sy = e.clientY - canvasRect.top;
 
-      // 1. Check City Banner click first
       const bannerCity = renderer.hitBannerAt(sx, sy);
       if (bannerCity) {
         app.emit('banner:click', { city: bannerCity, sx, sy });
@@ -356,7 +374,6 @@ async function boot() {
         return;
       }
 
-      // 2. Cell click
       const worldPt = cam.screenToWorld(sx, sy);
       const cell = app.w.cellAt(worldPt.x, worldPt.y);
       const ow = cell >= 0 ? app.w.owner[cell] : -1;
@@ -399,6 +416,8 @@ async function boot() {
   canvas.addEventListener('pointercancel', endPointer);
   canvas.addEventListener('pointerleave', () => {
     app.state.hoverCell = -1;
+    prevBannerCity = null;
+    lastTipKey = '';
     app.ui.hideTooltip();
     renderer.requestDraw();
   });
@@ -407,9 +426,8 @@ async function boot() {
     'wheel',
     (e) => {
       e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
+      const sx = e.clientX - canvasRect.left;
+      const sy = e.clientY - canvasRect.top;
       const factor = Math.exp(-e.deltaY * 0.0014);
       cam.zoomAtScreen(sx, sy, factor);
     },
