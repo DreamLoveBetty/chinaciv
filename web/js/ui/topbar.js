@@ -1,6 +1,6 @@
 // Topbar: Brand reset, 5 National Yield pills, Extension slots, Layers menu, Share popover, Pedia, Help
 
-import { ICONS, hydrateIcons } from '../icons.js?v=20261127-4';
+import { ICONS, hydrateIcons } from '../icons.js?v=20261127-7';
 import { escHtml } from '../format.js';
 import { fmtYieldPill } from './yieldReport.js';
 

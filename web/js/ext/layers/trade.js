@@ -34,7 +34,7 @@ export function createTradeLayer(app) {
         const weight = 0.35 + 0.65 * ((r.value_bcny || r.tonnage_mt || 1) / maxVal);
         const lw = (1.3 + weight * 2.4) / Math.max(0.25, zoom);
 
-        ctx.strokeStyle = 'rgba(240, 198, 96, 0.58)';
+        ctx.strokeStyle = 'rgba(240, 198, 96, 0.44)';
         ctx.lineWidth = lw;
         ctx.beginPath();
         if (pts.length === 3) {

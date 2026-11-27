@@ -1,10 +1,12 @@
-// Registers all 5 static map art layers and binds them to the Topbar "图层" menu
+// Registers all 6 static map art layers + animated transport flow overlay, bound to the Topbar "图层" menu
 
 import { createRoadsLayer } from './roads.js';
-import { createRailLayer } from './rail.js';
+import { createRailLayer } from './rail.js?v=20261127-7';
 import { createHubsLayer } from './hubs.js';
+import { createAirlinesLayer } from './airlines.js?v=20261127-7';
 import { createWondersLayer } from './wonders.js';
-import { createTradeLayer } from './trade.js';
+import { createTradeLayer } from './trade.js?v=20261127-7';
+import { installFlowOverlay } from './flowOverlay.js?v=20261127-7';
 
 export function install(app) {
   app.ui.addMapToggle({
@@ -58,6 +60,15 @@ export function install(app) {
       factory: createHubsLayer,
     },
     {
+      id: 'airlines',
+      label: '民航航空线路',
+      icon: 'flight',
+      title: '基于 OpenFlights 真实航线与全国120座机场构建的主干及区域航网（含流光动效）',
+      default: false,
+      dataName: 'infrastructure',
+      factory: createAirlinesLayer,
+    },
+    {
       id: 'wonders',
       label: '奇观与遗产',
       icon: 'wonder',
@@ -97,4 +108,6 @@ export function install(app) {
       },
     });
   }
+
+  installFlowOverlay(app);
 }

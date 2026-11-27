@@ -1,6 +1,6 @@
 // High-Speed Rail (八纵八横 golden/crimson dashed) & conventional railway layer with cached Path2D
 
-function ensureRailPaths(infra) {
+export function ensureRailPaths(infra) {
   if (infra._railPathsBuilt) return;
   infra._railPathsBuilt = true;
   const conv = new Path2D();

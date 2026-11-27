@@ -828,6 +828,26 @@ def audit_infra(rep: AuditReport, data: dict[str, Any], total_cells: int) -> Non
             f"infrastructure.json: roads={len(roads)}, rail={len(rail)} (HSR={hsr_cnt}), ports={len(ports)}, airports={len(airports)}",
             f"infrastructure.json incomplete: roads={len(roads)}, rail={len(rail)}, hsr={hsr_cnt}, ports={len(ports)}, airports={len(airports)}",
         )
+        air_routes = infra.get("air_routes", [])
+        bad_ar_cells = sum(
+            1
+            for ar in air_routes
+            if not isinstance(ar, dict)
+            or not check_valid_cell(ar.get("from_cell"), total_cells)
+            or not check_valid_cell(ar.get("to_cell"), total_cells)
+        )
+        ar_provs = set()
+        for ar in air_routes:
+            if isinstance(ar, dict):
+                ar_provs.add(ar.get("from_province_idx"))
+                ar_provs.add(ar.get("to_province_idx"))
+        ar_provs.discard(None)
+        rep.check(
+            isinstance(air_routes, list) and len(air_routes) >= 100 and bad_ar_cells == 0 and len(ar_provs) >= 34,
+            "@data-infra",
+            f"infrastructure.json air_routes={len(air_routes)} (valid cells, {len(ar_provs)}/34 provinces covered)",
+            f"infrastructure.json air_routes invalid: count={len(air_routes) if isinstance(air_routes, list) else type(air_routes)}, bad_cells={bad_ar_cells}, provs={len(ar_provs)}",
+        )
 
     # 3. military.json
     mil = data.get("military.json")

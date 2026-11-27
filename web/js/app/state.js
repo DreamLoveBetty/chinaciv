@@ -44,6 +44,7 @@ export function createInitialState() {
       rail: true,
       roads: false,
       hubs: true,
+      airlines: false,
       wonders: true,
       trade: false,
     },

@@ -1,6 +1,6 @@
 // Assembles the frozen window.__app / extension API object
 
-import { createEventBus, createInitialState } from './state.js?v=20261127-6';
+import { createEventBus, createInitialState } from './state.js?v=20261127-7';
 import { createDataLoader } from './data.js?v=20261127-4';
 import { createModeManager } from './modes.js';
 import { createHashManager } from './hash.js';
