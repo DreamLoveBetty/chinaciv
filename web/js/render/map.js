@@ -101,7 +101,9 @@ export function createMapRenderer({ canvas, cam, app }) {
     const c1 = Math.min(cols - 1, Math.ceil((x1 + W * 1.5) / W));
 
     const landCells = [];
+    const unselectedLandCells = [];
     const bandMatchCells = [];
+    const dimExceptState = currentDimExceptState();
     const activeLens = app.state.lens;
     const colorizer = activeLens ? buildLensColorizer(w, app.data, activeLens) : null;
     const colorArr = colorizer ? colorizer.colorHexArr : getTerrainColorHexArr(w);
@@ -120,6 +122,9 @@ export function createMapRenderer({ canvas, cam, app }) {
         let fillHex = hex;
         if (ow >= 0) {
           landCells.push(i);
+          if (dimExceptState >= 0 && ow !== dimExceptState) {
+            unselectedLandCells.push(i);
+          }
           if (colorizer && activeBand) {
             if (colorizer.matchesBand(i, activeBand)) {
               bandMatchCells.push(i);
@@ -256,13 +261,34 @@ export function createMapRenderer({ canvas, cam, app }) {
     // 9. Strategic resources
     drawResources(cacheCtx, w, app.data, app.state, zoom, bounds);
 
+    // 9.5 Subtle dimming veil over unselected provinces when a province is selected in map mode
+    if (dimExceptState >= 0 && unselectedLandCells.length) {
+      cacheCtx.fillStyle = 'rgba(8, 16, 26, 0.36)';
+      for (let off = 0; off < unselectedLandCells.length; off += 300) {
+        cacheCtx.beginPath();
+        const end = Math.min(unselectedLandCells.length, off + 300);
+        for (let k = off; k < end; k++) {
+          const i = unselectedLandCells[k];
+          traceHexSubpath(cacheCtx, cxArr[i], cyArr[i], corners, 1.018);
+        }
+        cacheCtx.fill();
+      }
+    }
+
     // 10. Province labels
-    drawProvinceLabels(cacheCtx, w, app.state, zoom, bounds);
+    drawProvinceLabels(cacheCtx, w, app.state, zoom, bounds, dimExceptState);
 
     cacheCtx.restore();
 
-    cacheMeta = { x0, y0, x1, y1, zoom, dpr, cacheW, cacheH };
+    cacheMeta = { x0, y0, x1, y1, zoom, dpr, cacheW, cacheH, dimState: dimExceptState };
     staticDirty = false;
+  }
+
+  function currentDimExceptState() {
+    const hasExtDim = Boolean(app.state.highlight && (app.state.highlight.dim || app.state.highlight.dimOthers));
+    return app.state.selectedState != null && app.state.mode === 'map' && !hasExtDim
+      ? app.state.selectedState
+      : -1;
   }
 
   function cacheCoversBounds(vb) {
@@ -277,6 +303,7 @@ export function createMapRenderer({ canvas, cam, app }) {
 
   function canScaleBlitDuringInteraction(vb) {
     if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) return false;
+    if (cacheMeta.dimState !== currentDimExceptState()) return false;
     const zoomRatio = cacheMeta.zoom / cam.zoom;
     if (zoomRatio < 0.35 || zoomRatio > 2.8) return false;
     return cacheCoversBounds(vb);
@@ -284,6 +311,7 @@ export function createMapRenderer({ canvas, cam, app }) {
 
   function shouldBakeNow() {
     if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) return true;
+    if (cacheMeta.dimState !== currentDimExceptState()) return true;
     const vb = cam.viewBoundsWorld();
     if (cam.isInteracting) {
       return !canScaleBlitDuringInteraction(vb);
@@ -348,7 +376,7 @@ export function createMapRenderer({ canvas, cam, app }) {
   }
 
   function onCameraSettle(zoomed = false) {
-    if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr) {
+    if (!cacheMeta || staticDirty || cacheMeta.dpr !== cam.dpr || cacheMeta.dimState !== currentDimExceptState()) {
       staticDirty = true;
       requestDraw();
       return;

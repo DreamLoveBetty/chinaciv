@@ -77,6 +77,8 @@ export function drawCityBanners(ctx, w, cam, state, data) {
   const sorted = getSortedCities(cities);
   const placedRects = [];
   const margin = 4;
+  const hasExtDim = Boolean(state.highlight && (state.highlight.dim || state.highlight.dimOthers));
+  const dimOthers = state.selectedState != null && state.mode === 'map' && !hasExtDim;
 
   ctx.save();
   ctx.textBaseline = 'middle';
@@ -143,6 +145,8 @@ export function drawCityBanners(ctx, w, cam, state, data) {
 
     const totalH = barH + (badge ? 14 : 0) + (showDetails ? 12 : 0);
     placedRects.push({ x: bx, y: by, w: barW, h: totalH });
+
+    ctx.globalAlpha = dimOthers && city.province_idx !== state.selectedState ? 0.62 : 1;
 
     // Anchor dot on city hex center
     ctx.fillStyle = isSelected ? '#ecd08e' : pColor;

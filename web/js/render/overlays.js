@@ -157,14 +157,13 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
     }
   }
 
-  // 2. Selected Province outline (uses pre-split provBorderByProv)
-  if (state.selectedState != null && w.provBorderByProv?.[state.selectedState]) {
+  // 2. Selected Province outline (3-layer glowing highlight using pre-split provBorderByProv)
+  if (state.selectedState != null && state.mode !== 'city' && w.provBorderByProv?.[state.selectedState]) {
     const sIdx = state.selectedState;
     const col = provinceColor(sIdx);
     const edges = w.provBorderByProv[sIdx];
-    ctx.strokeStyle = '#ffe6a3';
-    ctx.lineWidth = Math.max(2.2, 3.6 / zoom);
     ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     ctx.beginPath();
     for (let k = 0; k < edges.length; k += 2) {
       const ci = edges[k];
@@ -176,10 +175,17 @@ export function drawOverlay(ctx, w, cam, state, data, externalOverlays) {
       ctx.moveTo(x + corners[k1][0], y + corners[k1][1]);
       ctx.lineTo(x + corners[k2][0], y + corners[k2][1]);
     }
+
+    ctx.strokeStyle = rgba(col, 0.34);
+    ctx.lineWidth = Math.max(8.5, 13.0 / zoom);
     ctx.stroke();
 
-    ctx.strokeStyle = rgba(col, 0.55);
-    ctx.lineWidth = Math.max(4.5, 7 / zoom);
+    ctx.strokeStyle = 'rgba(255, 214, 112, 0.80)';
+    ctx.lineWidth = Math.max(4.2, 6.4 / zoom);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#fff6d8';
+    ctx.lineWidth = Math.max(2.0, 3.0 / zoom);
     ctx.stroke();
   }
 

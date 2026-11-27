@@ -10,7 +10,7 @@ const SHORT_PROV = {
   新疆维吾尔自治区: '新疆', 台湾省: '台湾', 香港特别行政区: '香港', 澳门特别行政区: '澳门',
 };
 
-export function drawProvinceLabels(ctx, w, state, zoom, bounds = null) {
+export function drawProvinceLabels(ctx, w, state, zoom, bounds = null, dimExceptState = -1) {
   const states = state.states && state.states.length ? state.states : w.states || [];
   if (!states.length) return;
 
@@ -30,23 +30,38 @@ export function drawProvinceLabels(ctx, w, state, zoom, bounds = null) {
   ctx.font = `700 ${worldSize.toFixed(1)}px "Noto Serif SC", "Songti SC", "STSong", Georgia, serif`;
   ctx.lineJoin = 'round';
   ctx.lineWidth = worldSize * 0.26;
-  ctx.strokeStyle = 'rgba(10, 18, 28, 0.85)';
-  ctx.fillStyle = state.lens ? 'rgba(247, 238, 212, 0.88)' : 'rgba(239, 224, 182, 0.78)';
+
+  const defaultFill = state.lens ? 'rgba(247, 238, 212, 0.88)' : 'rgba(239, 224, 182, 0.78)';
+  const defaultStroke = 'rgba(10, 18, 28, 0.85)';
 
   for (let i = 0; i < states.length; i++) {
     const st = states[i];
     const sb = w.stateBounds[i];
     if (!sb || sb.count === 0) continue;
 
+    const isSelected = dimExceptState >= 0 && i === dimExceptState;
     const name = st.name || '';
     const isTiny = sb.count <= 4;
-    if (isTiny && zoom < 0.55) continue;
+    if (isTiny && zoom < 0.55 && !isSelected) continue;
 
     const lx = sb.labelX;
     const ly = sb.labelY - (zoom < 0.45 ? 18 / zoom : 26 / zoom);
     if (lx < x0 || lx > x1 || ly < y0 || ly > y1) continue;
 
-    const txt = zoom >= 0.55 ? (st.name || SHORT_PROV[name] || name) : (SHORT_PROV[name] || st.abbr || name);
+    if (dimExceptState >= 0) {
+      if (isSelected) {
+        ctx.strokeStyle = 'rgba(8, 15, 24, 0.95)';
+        ctx.fillStyle = '#fff3cc';
+      } else {
+        ctx.strokeStyle = 'rgba(10, 18, 28, 0.55)';
+        ctx.fillStyle = 'rgba(218, 206, 178, 0.42)';
+      }
+    } else {
+      ctx.strokeStyle = defaultStroke;
+      ctx.fillStyle = defaultFill;
+    }
+
+    const txt = zoom >= 0.55 || isSelected ? (st.name || SHORT_PROV[name] || name) : (SHORT_PROV[name] || st.abbr || name);
     ctx.strokeText(txt, lx, ly);
     ctx.fillText(txt, lx, ly);
   }
