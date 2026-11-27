@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>中华文明 CHINACIV — 真实地理六边形文明沙盘</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23c9a45c' stroke='%23131e2a' stroke-width='4'/%3E%3Ctext x='32' y='43' text-anchor='middle' font-size='34' font-family='serif' font-weight='bold' fill='%23131e2a'%3E%E5%8D%8E%3C/text%3E%3C/svg%3E" />
+  <meta name="description" content="以文明系列（Civilization）为灵感的 25km 六边形中国真实地理、人口、经济、基建、高校奇观与1,302县交互战略地图。" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/cityview.css" />
+  <link rel="stylesheet" href="css/advisors.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <!-- Top Civilization Header Bar -->
+    <header id="topbar" class="topbar" role="banner">
+      <div class="topbar-left">
+        <button id="brand-btn" class="brand-btn" type="button" title="重置视角到全中国 (Home)">
+          <span class="brand-seal" aria-hidden="true">华</span>
+          <span class="brand-titles">
+            <span class="brand-zh">中华文明</span>
+            <span class="brand-en">CHINACIV</span>
+          </span>
+        </button>
+
+        <div id="yields-strip" class="yields-strip" aria-label="国家五大文明产出"></div>
+      </div>
+
+      <div class="topbar-center">
+        <div id="search-box" class="search-box">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input
+            id="search-input"
+            class="search-input"
+            type="search"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="搜索34省、城市、1,302县、奇观、电站…"
+            aria-label="搜索省份、城市、县域、奇观或资源"
+          />
+          <kbd class="search-kbd">/</kbd>
+          <div id="search-results" class="search-results hidden" role="listbox"></div>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <div id="ext-top-slots" class="ext-top-slots"></div>
+
+        <div class="dropdown-wrap" id="layers-wrap">
+          <button id="layers-btn" class="top-btn" type="button" title="图层开关">
+            <span class="btn-ico" data-ico="layers"></span>
+            <span class="btn-lbl">图层</span>
+            <span class="caret">▾</span>
+          </button>
+          <div id="layers-menu" class="popover-menu hidden" role="menu"></div>
+        </div>
+
+        <div class="dropdown-wrap" id="share-wrap">
+          <button id="share-btn" class="top-btn icon-only-sm" type="button" title="分享链接或导出高清地图">
+            <span class="btn-ico" data-ico="share"></span>
+            <span class="btn-lbl">分享</span>
+          </button>
+          <div id="share-menu" class="popover-menu hidden"></div>
+        </div>
+
+        <button id="pedia-btn" class="top-btn" type="button" title="打开文明百科与数据源清单">
+          <span class="btn-ico" data-ico="book"></span>
+          <span class="btn-lbl">百科</span>
+        </button>
+
+        <button id="help-btn" class="top-btn icon-btn" type="button" title="快捷键与操作指南 (?)">
+          <span class="btn-ico" data-ico="help"></span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Viewport -->
+    <main id="viewport" class="viewport">
+      <canvas id="map-canvas" class="map-canvas"></canvas>
+
+      <!-- Left & Right Extension Docks -->
+      <aside id="dock-left" class="ext-dock ext-dock-left hidden" aria-label="左侧扩展面板"></aside>
+      <aside id="dock-right" class="ext-dock ext-dock-right hidden" aria-label="右侧扩展面板"></aside>
+
+      <!-- Floating Quick Inspector Panel (State / City) -->
+      <section id="quick-panel" class="quick-panel hidden" aria-live="polite"></section>
+
+      <!-- Minimap -->
+      <div id="minimap-wrap" class="minimap-wrap">
+        <canvas id="minimap-canvas" width="210" height="156"></canvas>
+        <div class="minimap-foot">
+          <span id="minimap-coords" class="tabular">25 km 六边形网格</span>
+          <button id="minimap-fit" class="minimap-fit-btn" type="button" title="回到中国全图">全图</button>
+        </div>
+      </div>
+
+      <!-- Map Zoom Controls -->
+      <div id="zoom-controls" class="zoom-controls">
+        <button id="zoom-in" class="zoom-btn" type="button" title="放大 (+)">+</button>
+        <button id="zoom-out" class="zoom-btn" type="button" title="缩小 (-)">−</button>
+        <button id="zoom-home" class="zoom-btn" type="button" title="复位全图 (H)">⌖</button>
+      </div>
+
+      <!-- Boot Loading Overlay -->
+      <div id="boot-loading" class="boot-loading">
+        <div class="boot-card">
+          <div class="boot-crest">华</div>
+          <div class="boot-title">中华文明 · CHINACIV</div>
+          <div id="boot-status" class="boot-status">正在载入25公里六边形中国地理与统计数据…</div>
+          <div class="boot-bar"><div id="boot-bar-fill" class="boot-bar-fill"></div></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Bottom Lens & Legend Dock -->
+    <footer id="lens-dock" class="lens-dock" aria-label="地图视角与图例"></footer>
+
+    <!-- Hover Tooltip -->
+    <div id="map-tooltip" class="map-tooltip hidden" role="tooltip"></div>
+
+    <!-- Modal Root (Yield Report, Almanac/Pedia, Help) -->
+    <div id="modal-root" class="modal-root hidden" role="dialog" aria-modal="true"></div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

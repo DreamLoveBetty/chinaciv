@@ -1,0 +1,50 @@
+// Provincial map labels rendered in serif typography with subtle halo
+
+const SHORT_PROV = {
+  北京市: '北京', 天津市: '天津', 河北省: '河北', 山西省: '山西', 内蒙古自治区: '内蒙古',
+  辽宁省: '辽宁', 吉林省: '吉林', 黑龙江省: '黑龙江', 上海市: '上海', 江苏省: '江苏',
+  浙江省: '浙江', 安徽省: '安徽', 福建省: '福建', 江西省: '江西', 山东省: '山东',
+  河南省: '河南', 湖北省: '湖北', 湖南省: '湖南', 广东省: '广东', 广西壮族自治区: '广西',
+  海南省: '海南', 重庆市: '重庆', 四川省: '四川', 贵州省: '贵州', 云南省: '云南',
+  西藏自治区: '西藏', 陕西省: '陕西', 甘肃省: '甘肃', 青海省: '青海', 宁夏回族自治区: '宁夏',
+  新疆维吾尔自治区: '新疆', 台湾省: '台湾', 香港特别行政区: '香港', 澳门特别行政区: '澳门',
+};
+
+export function drawProvinceLabels(ctx, w, state, zoom) {
+  const states = state.states && state.states.length ? state.states : w.states || [];
+  if (!states.length) return;
+
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const basePx = Math.max(10, Math.min(18, 12.5 * Math.pow(zoom / 0.28, 0.25)));
+  const worldSize = basePx / zoom;
+
+  ctx.font = `700 ${worldSize.toFixed(1)}px "Noto Serif SC", "Songti SC", "STSong", Georgia, serif`;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = worldSize * 0.26;
+  ctx.strokeStyle = 'rgba(10, 18, 28, 0.85)';
+
+  for (let i = 0; i < states.length; i++) {
+    const st = states[i];
+    const sb = w.stateBounds[i];
+    if (!sb || sb.count === 0) continue;
+
+    // Tiny SARs / municipalities: avoid cluttering national view with duplicate label if city banner already sits right there
+    const name = st.name || '';
+    const isTiny = sb.count <= 4;
+    if (isTiny && zoom < 0.55) continue;
+
+    // Offset province label slightly above center so it avoids provincial capital banner
+    const lx = sb.labelX;
+    const ly = sb.labelY - (zoom < 0.45 ? 18 / zoom : 26 / zoom);
+
+    const txt = zoom >= 0.55 ? (st.name || SHORT_PROV[name] || name) : (SHORT_PROV[name] || st.abbr || name);
+    ctx.strokeText(txt, lx, ly);
+    ctx.fillStyle = state.lens ? 'rgba(247, 238, 212, 0.88)' : 'rgba(239, 224, 182, 0.78)';
+    ctx.fillText(txt, lx, ly);
+  }
+
+  ctx.restore();
+}
